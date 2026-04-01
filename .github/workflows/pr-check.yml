@@ -1,0 +1,75 @@
+name: Check and build for pull requests
+
+on: pull_request
+
+jobs:
+  install-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Setup caching
+        uses: actions/cache@v5
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+          key: cache-${{ runner.OS }}-${{ hashFiles('**/*.lock') }}
+          restore-keys: |
+            cache-${{ runner.OS }}-
+      - name: Install dependencies
+        run: |
+          yarn
+      - name: Run tests
+        run: |
+          yarn workspace @thu-info/app lint
+          yarn workspace @thu-info/app test
+  build-android:
+    needs: install-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: "corretto"
+          java-version: "17"
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Setup caching
+        uses: actions/cache@v5
+        with:
+          path: |
+            node_modules
+            */*/node_modules
+          key: cache-${{ runner.OS }}-${{ hashFiles('**/*.lock') }}
+          restore-keys: |
+            cache-${{ runner.OS }}-
+      - name: Install dependencies
+        run: |
+          yarn
+      - name: Prepare for building
+        run: |
+          sed -i "s/signingConfigs\.release/signingConfigs\.debug/g" apps/thu-info-app/android/app/build.gradle
+          sed -i "/preventRoot/d" apps/thu-info-app/android/app/src/main/java/com/unidy2002/thuinfo/MainApplication.kt
+          sed -i "/preventEmulator/d" apps/thu-info-app/android/app/src/main/java/com/unidy2002/thuinfo/MainApplication.kt
+          sed -i "/verifySignature/d" apps/thu-info-app/android/app/src/main/java/com/unidy2002/thuinfo/MainApplication.kt
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          build-root-directory: apps/thu-info-app/android
+      - name: Build android release
+        env:
+          SIGNATURE_DIGEST: ""
+        run: |
+          cd apps/thu-info-app/android && ./gradlew assembleRelease && cd ../../..
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-release.apk
+          path: apps/thu-info-app/android/app/build/outputs/apk/release/app-release.apk

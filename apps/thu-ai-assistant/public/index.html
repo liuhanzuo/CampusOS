@@ -1,0 +1,1329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>清华AI助手</title>
+    <!-- QR码生成库 - 多CDN备用 -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <script>
+        // 检测QRCode是否加载成功，如果失败则尝试备用CDN
+        if (typeof QRCode === 'undefined') {
+            document.write('<script src="https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js"><\/script>');
+        }
+    </script>
+    <script>
+        if (typeof QRCode === 'undefined') {
+            document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"><\/script>');
+        }
+    </script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #660874;
+            --primary-light: #8b2fa0;
+            --primary-dark: #4a0654;
+            --bg: #f5f5f5;
+            --card-bg: #ffffff;
+            --text: #333333;
+            --text-light: #666666;
+            --border: #e0e0e0;
+            --success: #4caf50;
+            --error: #f44336;
+            --user-bubble: #660874;
+            --ai-bubble: #ffffff;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ==================== 登录页面 ==================== */
+        #login-page {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: linear-gradient(135deg, #660874 0%, #4a0654 50%, #2d0033 100%);
+        }
+
+        .login-container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            width: 400px;
+            max-width: 90vw;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .login-header h1 {
+            font-size: 28px;
+            color: var(--primary);
+            margin-bottom: 8px;
+        }
+
+        .login-header p {
+            color: var(--text-light);
+            font-size: 14px;
+        }
+
+        .login-logo {
+            font-size: 48px;
+            margin-bottom: 12px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 14px;
+            color: var(--text-light);
+            font-weight: 500;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+            outline: none;
+        }
+
+        .form-group input:focus {
+            border-color: var(--primary);
+        }
+
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-light);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 8, 116, 0.4);
+        }
+
+        .btn-primary:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: var(--text);
+            margin-top: 10px;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .error-msg {
+            color: var(--error);
+            font-size: 14px;
+            margin-top: 10px;
+            text-align: center;
+            display: none;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* ==================== 2FA 页面 ==================== */
+        #twofa-section {
+            display: none;
+        }
+
+        .twofa-methods {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        .twofa-method-btn {
+            padding: 14px 20px;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            background: white;
+            cursor: pointer;
+            font-size: 15px;
+            text-align: left;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .twofa-method-btn:hover {
+            border-color: var(--primary);
+            background: #f9f0fb;
+        }
+
+        .twofa-method-btn .icon {
+            font-size: 24px;
+        }
+
+        /* ==================== 聊天页面 ==================== */
+        #chat-page {
+            display: none;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .chat-header {
+            background: var(--primary);
+            color: white;
+            padding: 16px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .chat-header h2 {
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .header-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.3s;
+        }
+
+        .header-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .message {
+            display: flex;
+            gap: 12px;
+            max-width: 85%;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            align-self: flex-end;
+            flex-direction: row-reverse;
+        }
+
+        .message-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .message.ai .message-avatar {
+            background: var(--primary);
+            color: white;
+        }
+
+        .message.user .message-avatar {
+            background: #e0e0e0;
+        }
+
+        .message-bubble {
+            padding: 12px 16px;
+            border-radius: 16px;
+            line-height: 1.6;
+            font-size: 15px;
+            word-break: break-word;
+        }
+
+        .message.ai .message-bubble {
+            background: var(--ai-bubble);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-bottom-left-radius: 4px;
+        }
+
+        .message.user .message-bubble {
+            background: var(--user-bubble);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message-bubble p {
+            margin-bottom: 8px;
+        }
+
+        .message-bubble p:last-child {
+            margin-bottom: 0;
+        }
+
+        .message-bubble ul, .message-bubble ol {
+            margin-left: 20px;
+            margin-bottom: 8px;
+        }
+
+        .message-bubble code {
+            background: rgba(0, 0, 0, 0.06);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .message-bubble strong {
+            font-weight: 600;
+        }
+
+        /* 支付二维码卡片 */
+        .pay-qr-card {
+            background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+            border: 1px solid #86efac;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 12px 0;
+            text-align: center;
+        }
+
+        .pay-qr-card h4 {
+            color: #166534;
+            margin-bottom: 12px;
+            font-size: 16px;
+        }
+
+        .pay-qr-card canvas {
+            border: 4px solid white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .pay-qr-card .pay-tip {
+            color: #15803d;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+
+        .pay-qr-card .pay-amount {
+            color: #166534;
+            font-size: 24px;
+            font-weight: 700;
+            margin: 8px 0;
+        }
+
+        .pay-qr-card .pay-link-btn {
+            display: inline-block;
+            margin-top: 12px;
+            padding: 10px 24px;
+            background: #16a34a;
+            color: white;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+            cursor: pointer;
+            border: none;
+        }
+
+        .pay-qr-card .pay-link-btn:hover {
+            background: #15803d;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(22, 163, 74, 0.4);
+        }
+
+        /* 支付弹窗 */
+        .pay-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .pay-modal {
+            background: white;
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 400px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            animation: slideUp 0.3s ease;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .pay-modal h3 {
+            color: #166534;
+            margin-bottom: 8px;
+            font-size: 20px;
+        }
+
+        .pay-modal .pay-modal-amount {
+            color: #16a34a;
+            font-size: 32px;
+            font-weight: 700;
+            margin: 12px 0;
+        }
+
+        .pay-modal .pay-modal-qr {
+            margin: 16px 0;
+        }
+
+        .pay-modal .pay-modal-qr canvas {
+            border: 4px solid #f0fdf4;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .pay-modal .pay-modal-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        .pay-modal .pay-modal-close {
+            padding: 10px 24px;
+            background: #f3f4f6;
+            color: #6b7280;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .pay-modal .pay-modal-close:hover {
+            background: #e5e7eb;
+        }
+
+        .typing-indicator {
+            display: flex;
+            gap: 4px;
+            padding: 8px 0;
+        }
+
+        .typing-indicator span {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #999;
+            animation: typing 1.4s infinite;
+        }
+
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes typing {
+            0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+            30% { transform: translateY(-8px); opacity: 1; }
+        }
+
+        .chat-input-area {
+            padding: 16px 20px;
+            background: white;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .chat-input-area textarea {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            font-size: 15px;
+            resize: none;
+            outline: none;
+            max-height: 120px;
+            min-height: 44px;
+            font-family: inherit;
+            line-height: 1.4;
+            transition: border-color 0.3s;
+        }
+
+        .chat-input-area textarea:focus {
+            border-color: var(--primary);
+        }
+
+        .send-btn {
+            width: 44px;
+            height: 44px;
+            border: none;
+            border-radius: 50%;
+            background: var(--primary);
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .send-btn:hover {
+            background: var(--primary-light);
+            transform: scale(1.05);
+        }
+
+        .send-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* 快捷操作 */
+        .quick-actions {
+            padding: 12px 20px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            background: white;
+            border-top: 1px solid var(--border);
+        }
+
+        .quick-action-btn {
+            padding: 8px 16px;
+            border: 1px solid var(--primary);
+            border-radius: 20px;
+            background: white;
+            color: var(--primary);
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.3s;
+            white-space: nowrap;
+        }
+
+        .quick-action-btn:hover {
+            background: var(--primary);
+            color: white;
+        }
+
+        /* 欢迎消息 */
+        .welcome-card {
+            background: linear-gradient(135deg, #f9f0fb, #f0e6f6);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 8px;
+            border: 1px solid #e8d5f0;
+        }
+
+        .welcome-card h3 {
+            color: var(--primary);
+            margin-bottom: 12px;
+            font-size: 18px;
+        }
+
+        .welcome-card p {
+            color: var(--text-light);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-top: 16px;
+        }
+
+        .feature-item {
+            text-align: center;
+            padding: 12px 8px;
+            background: white;
+            border-radius: 10px;
+            font-size: 12px;
+            color: var(--text-light);
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .feature-item:hover {
+            background: var(--primary);
+            color: white;
+            transform: translateY(-2px);
+        }
+
+        .feature-item .emoji {
+            font-size: 24px;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        /* 响应式 */
+        @media (max-width: 480px) {
+            .login-container {
+                padding: 30px 24px;
+            }
+            .feature-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- ==================== 登录页面 ==================== -->
+    <div id="login-page">
+        <div class="login-container">
+            <!-- 登录表单 -->
+            <div id="login-section">
+                <div class="login-header">
+                    <div class="login-logo">🎓</div>
+                    <h1>清华AI助手</h1>
+                    <p>使用清华学号和密码登录</p>
+                </div>
+                <form id="login-form">
+                    <div class="form-group">
+                        <label>学号</label>
+                        <input type="text" id="userId" placeholder="请输入学号" autocomplete="username" required>
+                    </div>
+                    <div class="form-group">
+                        <label>密码</label>
+                        <input type="password" id="password" placeholder="请输入密码" autocomplete="current-password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary" id="login-btn">登 录</button>
+                    <div class="error-msg" id="login-error"></div>
+                </form>
+            </div>
+
+            <!-- 2FA 验证 -->
+            <div id="twofa-section">
+                <div class="login-header">
+                    <div class="login-logo">🔐</div>
+                    <h1>二次验证</h1>
+                    <p id="twofa-desc">请选择验证方式</p>
+                </div>
+
+                <!-- 方法选择 -->
+                <div id="twofa-method-selection">
+                    <div class="twofa-methods">
+                        <button class="twofa-method-btn" id="btn-wechat" onclick="selectTwoFactorMethod('wechat')">
+                            <span class="icon">💬</span>
+                            <span>微信验证</span>
+                        </button>
+                        <button class="twofa-method-btn" id="btn-mobile" onclick="selectTwoFactorMethod('mobile')">
+                            <span class="icon">📱</span>
+                            <span id="mobile-label">手机验证</span>
+                        </button>
+                        <button class="twofa-method-btn" id="btn-totp" onclick="selectTwoFactorMethod('totp')" style="display:none">
+                            <span class="icon">🔑</span>
+                            <span>TOTP验证</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 验证码输入 -->
+                <div id="twofa-code-input" style="display:none">
+                    <div class="form-group">
+                        <label>验证码</label>
+                        <input type="text" id="twofa-code" placeholder="请输入验证码" maxlength="6" autocomplete="one-time-code">
+                    </div>
+                    <button class="btn btn-primary" onclick="submitTwoFactorCode()">验 证</button>
+                </div>
+
+                <!-- 完成登录提示（自动信任设备，不再需要用户选择） -->
+                <div id="twofa-completing" style="display:none">
+                    <p style="text-align:center; margin-bottom:20px; color: var(--text-light);">✅ 验证成功，正在完成登录并信任此设备...</p>
+                    <div style="text-align:center;"><div class="loading-spinner"></div></div>
+                </div>
+
+                <div class="error-msg" id="twofa-error"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== 聊天页面 ==================== -->
+    <div id="chat-page">
+        <div class="chat-header">
+            <h2>🎓 清华AI助手</h2>
+            <div class="header-actions">
+                <button class="header-btn" onclick="clearChat()">🗑️ 清空</button>
+                <button class="header-btn" onclick="doLogout()">🚪 退出</button>
+            </div>
+        </div>
+
+        <div class="chat-messages" id="chat-messages">
+            <!-- 欢迎消息 -->
+            <div class="welcome-card">
+                <h3>👋 你好！我是清华AI助手</h3>
+                <p>我可以帮你查询课表、体育场馆、成绩、校园卡余额等校园信息。直接告诉我你想查什么吧！</p>
+                <div class="feature-grid">
+                    <div class="feature-item" onclick="sendQuickMessage('帮我查一下课表')">
+                        <span class="emoji">📅</span>
+                        课程表
+                    </div>
+                    <div class="feature-item" onclick="sendQuickMessage('明天有没有空的羽毛球场？')">
+                        <span class="emoji">🏸</span>
+                        羽毛球场
+                    </div>
+                    <div class="feature-item" onclick="sendQuickMessage('查一下我的成绩')">
+                        <span class="emoji">📊</span>
+                        成绩单
+                    </div>
+                    <div class="feature-item" onclick="sendQuickMessage('校园卡还有多少钱？')">
+                        <span class="emoji">💳</span>
+                        校园卡
+                    </div>
+                    <div class="feature-item" onclick="sendQuickMessage('帮我充值校园卡50元')">
+                        <span class="emoji">💰</span>
+                        卡充值
+                    </div>
+                    <div class="feature-item" onclick="sendQuickMessage('宿舍电费还剩多少？')">
+                        <span class="emoji">⚡</span>
+                        电费查询
+                    </div>
+                    <div class="feature-item" onclick="sendQuickMessage('最近有什么校内新闻？')">
+                        <span class="emoji">📰</span>
+                        校内新闻
+                    </div>
+                    <div class="feature-item" onclick="sendQuickMessage('现在是第几周？')">
+                        <span class="emoji">📆</span>
+                        教学日历
+                    </div>
+                    <div class="feature-item" onclick="sendQuickMessage('查一下图书馆信息')">
+                        <span class="emoji">📚</span>
+                        图书馆
+                    </div>
+                    <div class="feature-item" onclick="sendQuickMessage('有哪些体育场馆可以预约？')">
+                        <span class="emoji">🏟️</span>
+                        场馆列表
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="quick-actions" id="quick-actions">
+            <button class="quick-action-btn" onclick="sendQuickMessage('帮我查课表')">📅 课表</button>
+            <button class="quick-action-btn" onclick="sendQuickMessage('明天羽毛球场')">🏸 羽毛球</button>
+            <button class="quick-action-btn" onclick="sendQuickMessage('查成绩')">📊 成绩</button>
+            <button class="quick-action-btn" onclick="sendQuickMessage('校园卡余额')">💳 余额</button>
+            <button class="quick-action-btn" onclick="sendQuickMessage('充值校园卡50元')">💰 充值</button>
+            <button class="quick-action-btn" onclick="sendQuickMessage('电费')">⚡ 电费</button>
+            <button class="quick-action-btn" onclick="sendQuickMessage('校内新闻')">📰 新闻</button>
+        </div>
+
+        <div class="chat-input-area">
+            <textarea id="chat-input" placeholder="输入你的问题..." rows="1" onkeydown="handleKeyDown(event)"></textarea>
+            <button class="send-btn" id="send-btn" onclick="sendMessage()">➤</button>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 状态管理 ====================
+        let isLoading = false;
+        let loginPollingTimer = null;
+
+        // ==================== 登录逻辑 ====================
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const userId = document.getElementById('userId').value.trim();
+            const password = document.getElementById('password').value;
+            const loginBtn = document.getElementById('login-btn');
+            const errorEl = document.getElementById('login-error');
+
+            if (!userId || !password) return;
+
+            loginBtn.disabled = true;
+            loginBtn.innerHTML = '<span class="loading-spinner"></span>登录中...';
+            errorEl.style.display = 'none';
+
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId, password }),
+                    credentials: 'include',
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    if (data.status === 'success') {
+                        showChatPage();
+                    } else if (data.status === 'two_factor') {
+                        showTwoFactorUI(data.twoFactor);
+                    } else if (data.status === 'pending') {
+                        startLoginPolling();
+                    }
+                } else {
+                    errorEl.textContent = data.error || '登录失败';
+                    errorEl.style.display = 'block';
+                    loginBtn.disabled = false;
+                    loginBtn.textContent = '登 录';
+                }
+            } catch (err) {
+                errorEl.textContent = '网络错误，请重试';
+                errorEl.style.display = 'block';
+                loginBtn.disabled = false;
+                loginBtn.textContent = '登 录';
+            }
+        });
+
+        function startLoginPolling() {
+            if (loginPollingTimer) clearInterval(loginPollingTimer);
+            loginPollingTimer = setInterval(async () => {
+                try {
+                    const res = await fetch('/api/login/status', { credentials: 'include' });
+                    const data = await res.json();
+                    console.log('[Polling] status:', data.status, data);
+
+                    if (data.status === 'success') {
+                        clearInterval(loginPollingTimer);
+                        loginPollingTimer = null;
+                        showChatPage();
+                    } else if (data.status === 'two_factor') {
+                        clearInterval(loginPollingTimer);
+                        loginPollingTimer = null;
+                        showTwoFactorUI(data.twoFactor);
+                    } else if (data.status === 'error') {
+                        clearInterval(loginPollingTimer);
+                        loginPollingTimer = null;
+                        const loginBtn = document.getElementById('login-btn');
+                        const errorEl = document.getElementById('login-error');
+                        // 回到登录页面显示错误
+                        document.getElementById('login-section').style.display = 'block';
+                        document.getElementById('twofa-section').style.display = 'none';
+                        errorEl.textContent = data.error || '登录失败';
+                        errorEl.style.display = 'block';
+                        loginBtn.disabled = false;
+                        loginBtn.textContent = '登 录';
+                    } else if (data.status === 'not_logged_in') {
+                        clearInterval(loginPollingTimer);
+                        loginPollingTimer = null;
+                        const loginBtn = document.getElementById('login-btn');
+                        loginBtn.disabled = false;
+                        loginBtn.textContent = '登 录';
+                    }
+                    // status === 'pending' 时继续轮询
+                } catch (e) {
+                    console.error('[Polling] error:', e);
+                    // 继续轮询
+                }
+            }, 1500);
+        }
+
+        // ==================== 2FA 逻辑 ====================
+        function showTwoFactorUI(twoFactor) {
+            document.getElementById('login-section').style.display = 'none';
+            document.getElementById('twofa-section').style.display = 'block';
+
+            if (twoFactor.type === 'method_selection') {
+                document.getElementById('twofa-method-selection').style.display = 'block';
+                document.getElementById('twofa-code-input').style.display = 'none';
+                document.getElementById('twofa-completing').style.display = 'none';
+                document.getElementById('twofa-desc').textContent = '请选择验证方式';
+
+                // 根据可用方式显示/隐藏按钮
+                document.getElementById('btn-wechat').style.display = twoFactor.hasWeChatBool ? 'flex' : 'none';
+                document.getElementById('btn-mobile').style.display = twoFactor.phone ? 'flex' : 'none';
+                document.getElementById('btn-totp').style.display = twoFactor.hasTotp ? 'flex' : 'none';
+
+                if (twoFactor.phone) {
+                    document.getElementById('mobile-label').textContent = `手机验证 (${twoFactor.phone})`;
+                }
+            } else if (twoFactor.type === 'code_input') {
+                document.getElementById('twofa-method-selection').style.display = 'none';
+                document.getElementById('twofa-code-input').style.display = 'block';
+                document.getElementById('twofa-completing').style.display = 'none';
+                document.getElementById('twofa-desc').textContent = '请输入收到的验证码';
+                document.getElementById('twofa-code').focus();
+            } else if (twoFactor.type === 'trust_device') {
+                // 后端自动信任设备，前端只显示完成提示
+                document.getElementById('twofa-method-selection').style.display = 'none';
+                document.getElementById('twofa-code-input').style.display = 'none';
+                document.getElementById('twofa-completing').style.display = 'block';
+                document.getElementById('twofa-desc').textContent = '验证成功！';
+            }
+        }
+
+        async function selectTwoFactorMethod(method) {
+            console.log('[2FA] 选择验证方式:', method);
+            try {
+                const res = await fetch('/api/login/2fa/method', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ method }),
+                    credentials: 'include',
+                });
+
+                const data = await res.json();
+                console.log('[2FA] 方法选择响应:', data);
+
+                if (res.ok) {
+                    // 开始轮询等待验证码输入界面
+                    startLoginPolling();
+                } else {
+                    showTwoFactorError(data.error || '操作失败');
+                }
+            } catch (e) {
+                console.error('[2FA] 网络错误:', e);
+                showTwoFactorError('网络错误');
+            }
+        }
+
+        async function submitTwoFactorCode() {
+            const code = document.getElementById('twofa-code').value.trim();
+            if (!code) return;
+
+            console.log('[2FA] 提交验证码:', code.substring(0, 2) + '***');
+
+            try {
+                const res = await fetch('/api/login/2fa/code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code }),
+                    credentials: 'include',
+                });
+
+                const data = await res.json();
+                console.log('[2FA] 验证码响应:', data);
+
+                if (res.ok) {
+                    startLoginPolling();
+                } else {
+                    showTwoFactorError(data.error || '验证失败');
+                }
+            } catch (e) {
+                console.error('[2FA] 网络错误:', e);
+                showTwoFactorError('网络错误');
+            }
+        }
+
+        async function submitTrustDevice(trust) {
+            try {
+                await fetch('/api/login/2fa/trust', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ trust }),
+                    credentials: 'include',
+                });
+                startLoginPolling();
+            } catch (e) {
+                // 继续轮询
+                startLoginPolling();
+            }
+        }
+
+        function showTwoFactorError(msg) {
+            const el = document.getElementById('twofa-error');
+            el.textContent = msg;
+            el.style.display = 'block';
+            setTimeout(() => { el.style.display = 'none'; }, 3000);
+        }
+
+        // ==================== 聊天逻辑 ====================
+        function showChatPage() {
+            document.getElementById('login-page').style.display = 'none';
+            document.getElementById('chat-page').style.display = 'flex';
+            document.getElementById('chat-input').focus();
+        }
+
+        function addMessage(content, isUser) {
+            const messagesEl = document.getElementById('chat-messages');
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${isUser ? 'user' : 'ai'}`;
+
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.textContent = isUser ? '👤' : '🎓';
+
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+            bubble.innerHTML = formatMessage(content);
+
+            msgDiv.appendChild(avatar);
+            msgDiv.appendChild(bubble);
+            messagesEl.appendChild(msgDiv);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+
+            // 生成支付二维码
+            if (!isUser) {
+                renderPayQrCodes(content, bubble);
+            }
+
+            return msgDiv;
+        }
+
+        function addTypingIndicator() {
+            const messagesEl = document.getElementById('chat-messages');
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message ai';
+            msgDiv.id = 'typing-indicator';
+
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.textContent = '🎓';
+
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+            bubble.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+
+            msgDiv.appendChild(avatar);
+            msgDiv.appendChild(bubble);
+            messagesEl.appendChild(msgDiv);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        function removeTypingIndicator() {
+            const el = document.getElementById('typing-indicator');
+            if (el) el.remove();
+        }
+
+        // 全局存储支付URL，供弹窗使用
+        let pendingPayUrls = [];
+
+        function formatMessage(text) {
+            // 先提取支付二维码标记中的URL（在HTML转义之前）
+            const payQrRegex = /\[PAY_QR:(.+?)\]/g;
+            let payQrMatches = [];
+            let match;
+            while ((match = payQrRegex.exec(text)) !== null) {
+                payQrMatches.push({ full: match[0], url: match[1] });
+            }
+
+            // 保存支付URL供后续渲染使用
+            pendingPayUrls = payQrMatches.map(m => m.url);
+
+            // 先移除 [PAY_QR:...] 标记，再做HTML转义，避免URL中的特殊字符被破坏
+            let cleanText = text;
+            for (let i = 0; i < payQrMatches.length; i++) {
+                cleanText = cleanText.replace(payQrMatches[i].full, `__PAY_QR_PLACEHOLDER_${i}__`);
+            }
+
+            // 简单的 Markdown 渲染
+            let html = cleanText
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.+?)\*/g, '<em>$1</em>')
+                .replace(/`(.+?)`/g, '<code>$1</code>')
+                .replace(/\n\n/g, '</p><p>')
+                .replace(/\n- /g, '</p><li>')
+                .replace(/\n(\d+)\. /g, '</p><li>')
+                .replace(/\n/g, '<br>')
+                .replace(/^/, '<p>')
+                .replace(/$/, '</p>');
+
+            // 将占位符替换为支付卡片
+            for (let i = 0; i < payQrMatches.length; i++) {
+                html = html.replace(
+                    `__PAY_QR_PLACEHOLDER_${i}__`,
+`<div class="pay-qr-card" data-pay-index="${i}"><h4>✅ 充值订单已创建</h4><div class="qr-canvas-container"></div><p class="pay-tip">请使用手机微信/支付宝扫描二维码完成支付</p><button class="pay-link-btn" onclick="openPayModal(${i})">🔍 查看大图二维码</button></div>`
+                );
+            }
+
+            return html;
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const message = input.value.trim();
+            if (!message || isLoading) return;
+
+            // 隐藏欢迎卡片
+            const welcomeCard = document.querySelector('.welcome-card');
+            if (welcomeCard) welcomeCard.style.display = 'none';
+
+            addMessage(message, true);
+            input.value = '';
+            input.style.height = 'auto';
+            isLoading = true;
+            document.getElementById('send-btn').disabled = true;
+
+            addTypingIndicator();
+
+            try {
+                const res = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message }),
+                    credentials: 'include',
+                });
+
+                removeTypingIndicator();
+
+                if (res.ok) {
+                    const data = await res.json();
+                    addMessage(data.reply, false);
+                } else {
+                    const data = await res.json();
+                    if (res.status === 401) {
+                        addMessage('⚠️ 会话已过期，请重新登录。', false);
+                        setTimeout(() => location.reload(), 2000);
+                    } else {
+                        addMessage('❌ ' + (data.error || '请求失败，请重试'), false);
+                    }
+                }
+            } catch (e) {
+                removeTypingIndicator();
+                addMessage('❌ 网络错误，请检查网络连接后重试', false);
+            }
+
+            isLoading = false;
+            document.getElementById('send-btn').disabled = false;
+            input.focus();
+        }
+
+        function sendQuickMessage(msg) {
+            document.getElementById('chat-input').value = msg;
+            sendMessage();
+        }
+
+        function handleKeyDown(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        }
+
+        // 自动调整输入框高度
+        document.getElementById('chat-input').addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+
+        async function clearChat() {
+            try {
+                await fetch('/api/chat/clear', {
+                    method: 'POST',
+                    credentials: 'include',
+                });
+            } catch (e) { /* ignore */ }
+
+            const messagesEl = document.getElementById('chat-messages');
+            messagesEl.innerHTML = '';
+
+            // 重新显示欢迎消息
+            messagesEl.innerHTML = `
+                <div class="welcome-card">
+                    <h3>👋 聊天已清空</h3>
+                    <p>你可以重新开始提问，我随时为你服务！</p>
+                </div>
+            `;
+        }
+
+        async function doLogout() {
+            try {
+                await fetch('/api/logout', {
+                    method: 'POST',
+                    credentials: 'include',
+                });
+            } catch (e) { /* ignore */ }
+            location.reload();
+        }
+
+        // ==================== 支付二维码渲染 ====================
+        function generateQrToContainer(container, url, size) {
+            // 方案1: 使用 qrcode 库的 toCanvas
+            if (typeof QRCode !== 'undefined' && QRCode.toCanvas) {
+                const canvas = document.createElement('canvas');
+                QRCode.toCanvas(canvas, url, {
+                    width: size || 200,
+                    margin: 2,
+                    color: { dark: '#000000', light: '#ffffff' }
+                }, function(error) {
+                    if (error) {
+                        console.error('[QR] toCanvas失败:', error);
+                        fallbackQr(container, url, size);
+                    }
+                });
+                container.appendChild(canvas);
+                return;
+            }
+            // 方案2: 使用 qrcode 库的 toDataURL
+            if (typeof QRCode !== 'undefined' && QRCode.toDataURL) {
+                QRCode.toDataURL(url, { width: size || 200, margin: 2 }, function(err, dataUrl) {
+                    if (err) {
+                        console.error('[QR] toDataURL失败:', err);
+                        fallbackQr(container, url, size);
+                        return;
+                    }
+                    const img = document.createElement('img');
+                    img.src = dataUrl;
+                    img.style.width = (size || 200) + 'px';
+                    img.style.height = (size || 200) + 'px';
+                    container.appendChild(img);
+                });
+                return;
+            }
+            // 方案3: 使用 qrcode-generator 库
+            if (typeof qrcode === 'function') {
+                try {
+                    const qr = qrcode(0, 'M');
+                    qr.addData(url);
+                    qr.make();
+                    container.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2 });
+                    return;
+                } catch(e) {
+                    console.error('[QR] qrcode-generator失败:', e);
+                }
+            }
+            // 方案4: 使用在线API生成二维码图片
+            fallbackQr(container, url, size);
+        }
+
+        function fallbackQr(container, url, size) {
+            const s = size || 200;
+            const img = document.createElement('img');
+            img.src = `https://api.qrserver.com/v1/create-qr-code/?size=${s}x${s}&data=${encodeURIComponent(url)}`;
+            img.alt = '支付二维码';
+            img.style.width = s + 'px';
+            img.style.height = s + 'px';
+            img.onerror = function() {
+                // 最终fallback: 使用另一个API
+                this.onerror = null;
+                this.src = `https://chart.googleapis.com/chart?cht=qr&chs=${s}x${s}&chl=${encodeURIComponent(url)}`;
+            };
+            container.appendChild(img);
+        }
+
+        function renderPayQrCodes(content, bubble) {
+            if (pendingPayUrls.length === 0) return;
+
+            for (let index = 0; index < pendingPayUrls.length; index++) {
+                const payUrl = pendingPayUrls[index];
+                const qrCard = bubble.querySelector(`[data-pay-index="${index}"]`);
+                if (qrCard) {
+                    const container = qrCard.querySelector('.qr-canvas-container');
+                    if (container) {
+                        console.log('[QR] 开始生成二维码, URL:', payUrl.substring(0, 50) + '...');
+                        generateQrToContainer(container, payUrl, 200);
+                    }
+                }
+            }
+        }
+
+        // ==================== 支付弹窗 ====================
+        function openPayModal(payIndex) {
+            const payUrl = pendingPayUrls[payIndex];
+            if (!payUrl) {
+                alert('支付链接不可用');
+                return;
+            }
+
+            // 创建弹窗
+            const overlay = document.createElement('div');
+            overlay.className = 'pay-modal-overlay';
+            overlay.onclick = function(e) {
+                if (e.target === overlay) overlay.remove();
+            };
+
+            const modal = document.createElement('div');
+            modal.className = 'pay-modal';
+            modal.innerHTML = `
+                <h3>💳 校园卡充值</h3>
+                <div class="pay-modal-qr" id="modal-qr-container"></div>
+                <p style="color:#6b7280; font-size:13px; margin-bottom:8px;">请使用手机微信/支付宝扫描上方二维码完成支付</p>
+                <div class="pay-modal-actions">
+                    <button class="pay-modal-close" onclick="this.closest('.pay-modal-overlay').remove()">关闭</button>
+                </div>
+            `;
+
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+
+            // 在弹窗中生成二维码
+            const qrContainer = modal.querySelector('#modal-qr-container');
+            if (qrContainer) {
+                generateQrToContainer(qrContainer, payUrl, 280);
+            }
+        }
+
+        // ==================== 初始化 ====================
+        // 检查是否已登录
+        (async () => {
+            try {
+                const res = await fetch('/api/login/status', { credentials: 'include' });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    showChatPage();
+                }
+            } catch (e) { /* ignore */ }
+        })();
+    </script>
+</body>
+</html>
