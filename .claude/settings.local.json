@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(taskkill /F /PID 367188)",
+      "Bash(taskkill //F //PID 367188)",
+      "Bash(taskkill //F //PID 332996)",
+      "Bash(npx ts-node:*)",
+      "Bash(tasklist)",
+      "Bash(taskkill //F //PID 364680)",
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(taskkill //F //PID 366064)",
+      "WebSearch",
+      "Read(//d D:/**)",
+      "Bash(node -e ':*)",
+      "Bash(taskkill /F /IM node.exe)",
+      "Read(//d/CampusOS/apps/thu-ai-assistant/**)",
+      "Bash(xargs kill:*)",
+      "Bash(cmd //c \"taskkill /F /PID 295704\")",
+      "Bash(curl -s \"https://www.sports.tsinghua.edu.cn/venue/js/jsindex.1773651610867.js\" -o \"temp_jsindex.js\")"
+    ]
+  }
+}

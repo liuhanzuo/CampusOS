@@ -5,6 +5,7 @@
         "moduleResolution": "nodenext",
         "declaration": true,
         "outDir": "./dist",
+        "rootDir": "./src",
         "strict": true,
         "allowSyntheticDefaultImports": true,
         "esModuleInterop": true,
