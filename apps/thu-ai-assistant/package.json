@@ -6,32 +6,39 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
-    "dev": "ts-node src/server.ts"
+    "dev": "ts-node src/server.ts",
+    "sports": "ts-node src/cli-sports.ts",
+    "quick": "ts-node src/quick-sports.ts",
+    "explore": "ts-node src/explore-sports.ts",
+    "test:sports": "ts-node src/test-sports-selenium.ts",
+    "test:login": "ts-node src/simple-login.ts"
   },
   "dependencies": {
     "@thu-info/lib": "*",
+    "abort-controller": "3.0.0",
+    "cheerio": "1.2.0",
+    "cors": "^2.8.5",
+    "cross-fetch": "^4.1.0",
+    "crypto-js": "4.2.0",
+    "dayjs": "^1.11.20",
     "express": "^4.18.2",
     "express-session": "^1.17.3",
-    "cors": "^2.8.5",
-    "dayjs": "^1.11.20",
-    "cross-fetch": "^4.1.0",
-    "uuid": "^9.0.0",
-    "cheerio": "1.2.0",
+    "he": "^1.2.0",
     "iconv-lite": "0.7.2",
-    "abort-controller": "3.0.0",
-    "crypto-js": "4.2.0",
     "jsencrypt": "^3.3.2",
+    "selenium-webdriver": "^4.41.0",
     "sm-crypto": "^0.4.0",
-    "he": "^1.2.0"
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/crypto-js": "4.2.2",
     "@types/express": "^4.17.21",
     "@types/express-session": "^1.17.10",
-    "@types/cors": "^2.8.17",
-    "@types/uuid": "^9.0.7",
-    "@types/crypto-js": "4.2.2",
     "@types/he": "1.2.3",
+    "@types/selenium-webdriver": "^4.35.5",
     "@types/sm-crypto": "^0.3.4",
+    "@types/uuid": "^9.0.7",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"
   }

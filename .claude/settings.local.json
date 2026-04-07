@@ -16,7 +16,10 @@
       "Read(//d/CampusOS/apps/thu-ai-assistant/**)",
       "Bash(xargs kill:*)",
       "Bash(cmd //c \"taskkill /F /PID 295704\")",
-      "Bash(curl -s \"https://www.sports.tsinghua.edu.cn/venue/js/jsindex.1773651610867.js\" -o \"temp_jsindex.js\")"
+      "Bash(curl -s \"https://www.sports.tsinghua.edu.cn/venue/js/jsindex.1773651610867.js\" -o \"temp_jsindex.js\")",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(ls -la *.ts)"
     ]
   }
 }
