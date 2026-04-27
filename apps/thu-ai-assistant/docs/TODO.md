@@ -33,7 +33,7 @@ This file tracks the concrete engineering work needed to turn `thu-ai-assistant`
 
 - [ ] Add provider abstraction for GLM, DeepSeek, and future OpenAI-compatible providers.
 - [ ] Move provider selection into `src/config/env.ts`.
-- [ ] Add `.env` loading or document the exact shell-based startup path.
+- [x] Add `.env` loading or document the exact shell-based startup path.
 - [ ] Keep the system prompt focused on behavior and move tool-specific details into tool descriptions where possible.
 - [ ] Add guardrails for user intent: query, prepare action, confirm action, execute action.
 - [ ] Add a max tool-round failure response that tells the user what failed and what to retry.

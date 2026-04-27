@@ -2,6 +2,8 @@
  * THU AI Assistant - Express server entrypoint.
  */
 
+import "dotenv/config";
+
 if (typeof globalThis.window === "undefined") {
     (globalThis as any).window = globalThis;
 }

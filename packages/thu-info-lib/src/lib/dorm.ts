@@ -91,9 +91,15 @@ export const getEleRemainder = async (
         "id",
         "0a993de7e533cd43a594459abdcab27d/1",
         async () => {
-            const $ = await uFetch(ELE_REMAINDER_URL).then(cheerio.load);
-            if ($("#net_Default_LoginCtrl1_txtUserName").length === 1) throw new EleError();
+            const rawHtml = await uFetch(ELE_REMAINDER_URL);
+            console.log(`[Dorm] ELE_REMAINDER 响应长度: ${rawHtml.length}, 前300字符: ${rawHtml.substring(0, 300)}`);
+            const $ = cheerio.load(rawHtml);
+            if ($("#net_Default_LoginCtrl1_txtUserName").length === 1) {
+                console.log(`[Dorm] ELE: 检测到登录页面，session 未生效`);
+                throw new EleError();
+            }
             const remainderText = $("#Netweb_Home_electricity_DetailCtrl1_lblele").text().trim();
+            console.log(`[Dorm] ELE: remainderText="${remainderText}"`);
             if (remainderText === "") throw new EleError();
             const remainder = Number(remainderText);
             const updateTime = $("#Netweb_Home_electricity_DetailCtrl1_lbltime").text().trim();

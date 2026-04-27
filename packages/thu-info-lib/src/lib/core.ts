@@ -450,10 +450,16 @@ export const roam = async (helper: InfoHelper, policy: RoamingPolicy, payload: s
             return response;
         }
         let redirectUrl = cheerio.load(response)("a").attr()!.href;
+        console.log(`[Core] roam id: CAS 重定向原始URL: ${redirectUrl}`);
         if (policy !== "card") {
-            redirectUrl = getWebVPNUrl(redirectUrl);
+            try {
+                redirectUrl = parseUrl(redirectUrl);
+                console.log(`[Core] roam id: parseUrl 生成 webvpn URL: ${redirectUrl.substring(0, 120)}`);
+            } catch {
+                console.log(`[Core] roam id: parseUrl 失败，回退到 getWebVPNUrl (oauth)`);
+                redirectUrl = getWebVPNUrl(redirectUrl);
+            }
             if (getRedirectLocation) {
-                // Patch for OpenHarmony
                 const idUrl = await getRedirectLocation(redirectUrl);
                 if (!idUrl) {
                     throw new LoginError("Failed to get id url.");

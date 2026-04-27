@@ -17,6 +17,14 @@ const WEBVPN_HASH_TO_ORIGIN: { [hash: string]: { scheme: string; host: string; p
     "77726476706e69737468656265737421a5a70f8834396657761d88e29d51367b6a00": {
         scheme: "http", host: "50.tsinghua.edu.cn", port: "80",
     },
+    // myhome.tsinghua.edu.cn:443 - 宿舍/卫生成绩（HTTPS）
+    "77726476706e69737468656265737421fdb94c852f3f6555301c9aa596522b20e7a45e0b22fda391": {
+        scheme: "https", host: "myhome.tsinghua.edu.cn", port: "443",
+    },
+    // myhome.tsinghua.edu.cn:80 - 电费/充值/改密（HTTP）
+    "77726476706e69737468656265737421fdee49932a3526446d0187ab9040227bca90a6e14cc9": {
+        scheme: "http", host: "myhome.tsinghua.edu.cn", port: "80",
+    },
 };
 
 /**
@@ -34,6 +42,9 @@ const webvpnUrlToLbAuth = (webvpnUrl: string): string | null => {
 };
 
 export const cookies: { [key: string]: string } = {};
+
+const isRedirectStatus = (status: number) =>
+    status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
 
 /**
  * Clear the cookies.
@@ -185,7 +196,7 @@ export const uFetch = async (
             // 手动跟随重定向（仅 GET 请求跟随，POST 不跟随）
             let redirectCount = 0;
             let lbAuthAttempted = false; // 防止 lb-auth 重试的无限循环
-            while ((response.status === 301 || response.status === 302) && redirectCount < 20) {
+            while (isRedirectStatus(response.status) && redirectCount < 20) {
                 const location = response.headers.get("Location");
                 if (!location) break;
                 console.log(`[Network] uFetch 重定向 #${redirectCount + 1}: ${response.status} -> ${location.substring(0, 100)}`);
@@ -207,7 +218,7 @@ export const uFetch = async (
                         parseCookiesFromResponse(lbResponse);
                         // 跟随 lb-auth 的重定向链
                         let lbRedirectCount = 0;
-                        while ((lbResponse.status === 301 || lbResponse.status === 302) && lbRedirectCount < 10) {
+                        while (isRedirectStatus(lbResponse.status) && lbRedirectCount < 10) {
                             const lbLocation = lbResponse.headers.get("Location");
                             if (!lbLocation) break;
                             console.log(`[Network] lb-auth 重定向 #${lbRedirectCount + 1}: ${lbResponse.status} -> ${lbLocation.substring(0, 100)}`);
@@ -384,7 +395,7 @@ export const getRedirectUrl = async (
             const response = await fetch(location, currentInit);
             parseCookiesFromResponse(response);
 
-            if (response.status !== 301 && response.status !== 302) {
+            if (!isRedirectStatus(response.status)) {
                 return location;
             }
 
