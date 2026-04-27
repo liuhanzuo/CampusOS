@@ -9,7 +9,7 @@ if (typeof globalThis.window === "undefined") {
     (globalThis as any).window = globalThis;
 }
 
-import { sportsSeleniumService } from './sports-selenium-service';
+import { sportsSeleniumService } from './services/sports-selenium/sports-selenium-service';
 import * as readline from 'readline';
 
 /**

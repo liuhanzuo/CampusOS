@@ -4,13 +4,8 @@
  * 直接访问清华统一认证，跳过复杂的页面查找
  */
 
-// Node.js 环境 polyfill
-declare global {
-  var window: unknown;
-}
-
 if (typeof globalThis.window === "undefined") {
-    globalThis.window = globalThis;
+    (globalThis as any).window = globalThis;
 }
 
 import * as readline from 'readline';
