@@ -45,7 +45,7 @@ const sportsFetch = async (url: string, method = "GET", body?: string): Promise<
     const jwtToken = (globalThis as any).__sportsJwtToken;
 
     console.log(`[Sports] sportsFetch: ${method} ${url}`);
-    console.log(`[Sports] sportsFetch: token=${jwtToken ? jwtToken.substring(0, 30) + '...' : 'none'}`);
+    console.log(`[Sports] sportsFetch: token=${jwtToken ? jwtToken.substring(0, 30) + "..." : "none"}`);
 
     // 构建额外的 headers（JWT token）
     const extraHeaders: Record<string, string> = {};
@@ -80,7 +80,7 @@ const getSportsResourceLimit = async (
 ) => {
     // 直接使用旧 API（通过 WebVPN）
     const rawHtml = await uFetch(`${SPORTS_BASE_URL}&gymnasium_id=${gymId}&item_id=${itemId}&time_date=${date}`);
-    console.log(`[Sports] getSportsResourceLimit: rawHtml长度=${rawHtml.length}, 前200字符: ${rawHtml.substring(0, 200).replace(/\n/g, ' ')}`);
+    console.log(`[Sports] getSportsResourceLimit: rawHtml长度=${rawHtml.length}, 前200字符: ${rawHtml.substring(0, 200).replace(/\n/g, " ")}`);
     const countSearch = /var limitBookCount = '(\d+?)';/.exec(rawHtml);
     const initSearch = /var limitBookInit = '(\d+?)';/.exec(rawHtml);
     if (countSearch === null || initSearch === null) {
@@ -180,7 +180,7 @@ export const getSportsResources = async (
         "5539ECF8CD815C7D3F5A8EE0A2D72441",
         async () => {
             // 使用新系统 API（直连，带 JWT token）
-            console.log(`[Sports] 使用新系统API查询（直连模式）`);
+            console.log("[Sports] 使用新系统API查询（直连模式）");
 
             // 根据配置文件和抓包结果，API代理路径是 /venue/site/api
             // 尝试多个可能的API端点和参数组合
@@ -231,7 +231,7 @@ export const getSportsResources = async (
 
             for (let i = 0; i < attempts.length; i++) {
                 const attempt = attempts[i];
-                const method: string = (attempt as any).method || 'POST';
+                const method: string = (attempt as any).method || "POST";
                 const requestBody = attempt.body ? JSON.stringify(attempt.body) : undefined;
 
                 console.log(`[Sports] 尝试 ${i + 1}/${attempts.length}: ${method} ${attempt.url}`);
@@ -240,14 +240,14 @@ export const getSportsResources = async (
                 }
 
                 try {
-                    const responseText = await sportsFetch(attempt.url, method, requestBody || '');
+                    const responseText = await sportsFetch(attempt.url, method, requestBody || "");
                     console.log(`[Sports] 响应: ${responseText.substring(0, 300)}`);
 
                     const response = JSON.parse(responseText);
 
                     // 检查是否成功
                     if (response.success && response.code === 0 && response.data) {
-                        console.log(`[Sports] ✓ API调用成功!`);
+                        console.log("[Sports] ✓ API调用成功!");
 
                         // 解析响应数据
                         const apiData = response.data;
@@ -279,7 +279,7 @@ export const getSportsResources = async (
                             data: resources,
                         } as SportsResourcesInfo;
                     } else if (response.code === 404) {
-                        console.log(`[Sports] ✗ 404 Not Found，尝试下一个...`);
+                        console.log("[Sports] ✗ 404 Not Found，尝试下一个...");
                         lastError = `404: ${attempt.url}`;
                         continue;
                     } else {
@@ -297,7 +297,7 @@ export const getSportsResources = async (
 
             // 所有尝试都失败
             console.error(`[Sports] 所有新API端点均失败。最后错误: ${lastError?.message || lastError}`);
-            console.log(`[Sports] 回退到旧系统API...`);
+            console.log("[Sports] 回退到旧系统API...");
 
             // 回退到旧API
             const limitData = await getSportsResourceLimit(helper, gymId, itemId, date);

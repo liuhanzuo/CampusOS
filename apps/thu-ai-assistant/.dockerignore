@@ -1,0 +1,62 @@
+# ===== 构建产物与依赖 =====
+node_modules
+dist
+*.log
+
+# ===== 文档（容器运行时不需要） =====
+*.md
+!SPORTS_README.md
+# 说明：SPORTS_README.md 保留用于容器内自描述，其余 MD 仅开发期使用
+
+# ===== 调试/探索脚本与抓取样本 =====
+debug-*.ts
+debug-*.js
+debug-*.json
+debug-*.html
+debug-*.png
+test-*.ts
+explore-*.ts
+search-*.ts
+extract-*.ts
+parse-*.ts
+verify-*.ts
+token-tool.ts
+use-sports-bot.ts
+brute-force-apis.ts
+selenium-debug.png
+selenium-extract-data.ts
+selenium-login.ts
+selenium-sports.ts
+simple-login*.ts
+auto-login.ts
+sports-bot.ts
+cli-sports.ts
+quick-sports.ts
+jsindex.js
+jwt-token.txt
+window-polyfill.js
+working-apis.json
+
+# ===== 抓取截图与网页快照 =====
+screenshots
+screenshot-*.png
+page-source.html
+info-sports-response.html
+
+# ===== 源控制与本地工具链 =====
+.git
+.gitignore
+.github
+.husky
+.vscode
+.idea
+.codebuddy
+.claude
+.bundle
+
+# ===== 操作系统杂项 =====
+.DS_Store
+Thumbs.db
+
+# ===== 异常残留文件（误入仓库） =====
+console.log*

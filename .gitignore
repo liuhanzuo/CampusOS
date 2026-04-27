@@ -57,10 +57,30 @@ yarn-error.log
 
 # thu-ai-assistant local runtime artifacts
 apps/thu-ai-assistant/.env
+apps/thu-ai-assistant/.env.local
+apps/thu-ai-assistant/.env.*.local
 apps/thu-ai-assistant/.cookies/
 apps/thu-ai-assistant/dist/
 apps/thu-ai-assistant/server*.log
 apps/thu-ai-assistant/screenshots/
+# thu-ai-assistant secrets / tokens (never commit)
+apps/thu-ai-assistant/jwt-token.txt
+apps/thu-ai-assistant/*.token
+apps/thu-ai-assistant/*.token.txt
+# thu-ai-assistant debug artifacts (local only)
+apps/thu-ai-assistant/debug-*.png
+apps/thu-ai-assistant/debug-*.html
+apps/thu-ai-assistant/debug-*.json
+apps/thu-ai-assistant/screenshot-*.png
+apps/thu-ai-assistant/selenium-debug.png
+apps/thu-ai-assistant/page-source.html
+apps/thu-ai-assistant/info-sports-response.html
+apps/thu-ai-assistant/working-apis.json
+# thu-ai-assistant package lock (monorepo uses yarn at root)
+apps/thu-ai-assistant/package-lock.json
+
+# CodeBuddy local plan / cache
+.codebuddy/
 
 # testing
 /coverage

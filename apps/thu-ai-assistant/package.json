@@ -7,6 +7,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "dev": "ts-node src/server.ts",
+    "lint": "tsc --noEmit",
+    "fix": "echo \"no auto-fix configured\"",
     "sports": "ts-node src/cli-sports.ts",
     "quick": "ts-node src/quick-sports.ts",
     "explore": "ts-node src/explore-sports.ts",

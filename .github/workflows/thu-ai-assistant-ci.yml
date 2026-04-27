@@ -1,0 +1,45 @@
+name: thu-ai-assistant CI
+
+# PR 快速反馈流水线：仅在与 thu-ai-assistant 相关的路径变化时触发，目标 5 分钟内反馈。
+on:
+  pull_request:
+    branches:
+      - master
+      - main
+    paths:
+      - "apps/thu-ai-assistant/**"
+      - "packages/**"
+      - "package.json"
+      - "yarn.lock"
+      - "lerna.json"
+      - ".github/workflows/thu-ai-assistant-*.yml"
+      - ".github/actions/setup-thu-ai-assistant/**"
+
+# 同一 PR 多次推送时，取消旧运行以节省 runner 资源
+concurrency:
+  group: thu-ai-assistant-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup thu-ai-assistant toolchain
+        uses: ./.github/actions/setup-thu-ai-assistant
+        with:
+          node-version: "24"
+
+      # @thu-info/lib 是 thu-ai-assistant 的本地依赖，先尝试编译它（失败不阻断，靠 tsc 自身报错）
+      - name: Build @thu-info/lib (best-effort)
+        run: yarn workspace @thu-info/lib build || echo "::warning::@thu-info/lib build skipped or failed; continuing."
+
+      - name: Build thu-ai-assistant (tsc)
+        run: yarn workspace thu-ai-assistant build

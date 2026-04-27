@@ -100,7 +100,7 @@ const parseUrl = (urlIn: string) => {
 };
 
 export const getCsrfToken = async () => {
-    console.log(`[Core] getCsrfToken: 开始获取 CSRF token...`);
+    console.log("[Core] getCsrfToken: 开始获取 CSRF token...");
     const cookie = await uFetch(GET_COOKIE_URL);
     console.log(`[Core] getCsrfToken: cookie响应长度=${cookie.length}, 内容前100字符: ${cookie.substring(0, 100)}`);
     const q = /XSRF-TOKEN=(.+?);/.exec(cookie + ";");
@@ -291,34 +291,34 @@ export const roam = async (helper: InfoHelper, policy: RoamingPolicy, payload: s
         // www.sports 新系统：使用 CAS + JWT token 认证（直连，不通过 WebVPN）
         if (url.includes(HOST_MAP["www.sports"])) {
             const SPORTS_DIRECT_BASE = "https://www.sports.tsinghua.edu.cn";
-            console.log(`[Core] roam: www.sports 新系统CAS登录流程开始（直连模式）`);
+            console.log("[Core] roam: www.sports 新系统CAS登录流程开始（直连模式）");
 
             try {
                 // 第一步：调用 /venue/site/cas/address 获取 CAS 登录 URL
                 const loginHtmlUrl = `${SPORTS_DIRECT_BASE}/venue/login.html`;
                 const casAddressUrl = `${SPORTS_DIRECT_BASE}/venue/site/cas/address?redirectUrl=${encodeURIComponent(loginHtmlUrl)}&queryParam=${encodeURIComponent(loginHtmlUrl)}&typeCode=16384&extInfo=`;
-                console.log(`[Core] roam: 第一步 - 获取CAS地址（直连）...`);
+                console.log("[Core] roam: 第一步 - 获取CAS地址（直连）...");
                 const casAddressResult = await uFetch(casAddressUrl);
                 console.log(`[Core] roam: cas/address响应: ${casAddressResult.substring(0, 300)}`);
                 const casAddressParsed = JSON.parse(casAddressResult);
                 if (casAddressParsed.code !== 0 || !casAddressParsed.data) {
-                    console.error(`[Core] roam: cas/address返回错误`);
+                    console.error("[Core] roam: cas/address返回错误");
                     return await uFetch(url);
                 }
 
                 // 第二步：获取 toLoginPage 的重定向目标（id.tsinghua.edu.cn 的登录 URL）
                 const casLoginUrl = casAddressParsed.data;
-                console.log(`[Core] roam: 第二步 - 获取CAS重定向目标...`);
+                console.log("[Core] roam: 第二步 - 获取CAS重定向目标...");
                 const idLoginPageUrl = await getRedirectUrl(casLoginUrl);
                 console.log(`[Core] roam: CAS重定向到: ${idLoginPageUrl.substring(0, 120)}`);
 
                 // 第三步：在 id.tsinghua.edu.cn 上用用户名密码登录
                 // idLoginPageUrl 类似: https://id.tsinghua.edu.cn/do/off/ui/auth/login/form/{hash}/0?/site/authcenter/doAuth/{session_hash}
-                console.log(`[Core] roam: 第三步 - 在id.tsinghua.edu.cn上登录...`);
+                console.log("[Core] roam: 第三步 - 在id.tsinghua.edu.cn上登录...");
                 const idLoginPageHtml = await uFetch(idLoginPageUrl);
                 const sm2PublicKey = cheerio.load(idLoginPageHtml)("#sm2publicKey").text();
                 if (sm2PublicKey === "") {
-                    console.error(`[Core] roam: 无法获取SM2公钥`);
+                    console.error("[Core] roam: 无法获取SM2公钥");
                     return await uFetch(url);
                 }
                 let loginResponse = await uFetch(ID_LOGIN_URL, {
@@ -332,11 +332,11 @@ export const roam = async (helper: InfoHelper, policy: RoamingPolicy, payload: s
                     loginResponse = await twoFactorAuth(helper);
                 }
                 if (!loginResponse.includes("登录成功。正在重定向到")) {
-                    console.error(`[Core] roam: id.tsinghua.edu.cn登录失败`);
-                    console.log(`[Core] roam: 登录响应(前500): ${loginResponse.substring(0, 500).replace(/\n/g, ' ')}`);
+                    console.error("[Core] roam: id.tsinghua.edu.cn登录失败");
+                    console.log(`[Core] roam: 登录响应(前500): ${loginResponse.substring(0, 500).replace(/\n/g, " ")}`);
                     return await uFetch(url);
                 }
-                console.log(`[Core] roam: id.tsinghua.edu.cn登录成功!`);
+                console.log("[Core] roam: id.tsinghua.edu.cn登录成功!");
 
                 // 第四步：跟随回调重定向到 doAuth，获取 uniToken
                 // 登录成功后的回调 URL 会重定向到 www.sports.tsinghua.edu.cn/venue/site/authcenter/doAuth/{hash}?ticket=xxx
@@ -355,7 +355,7 @@ export const roam = async (helper: InfoHelper, policy: RoamingPolicy, payload: s
                     // 第五步：用 uniToken 换取 JWT token（直连）
                     const casTokenUrl = `${SPORTS_DIRECT_BASE}/venue/site/cas/token`;
                     const tokenBody = JSON.stringify({platForm: "CAS", client: "PC", token: uniToken, extInfo: ""});
-                    console.log(`[Core] roam: 第五步 - 换取JWT token（直连）...`);
+                    console.log("[Core] roam: 第五步 - 换取JWT token（直连）...");
                     const tokenResult = await uFetch(casTokenUrl, tokenBody as any, 60000, "UTF-8", true, "application/json");
                     console.log(`[Core] roam: cas/token响应: ${tokenResult.substring(0, 300)}`);
                     const tokenParsed = JSON.parse(tokenResult);
@@ -373,7 +373,7 @@ export const roam = async (helper: InfoHelper, policy: RoamingPolicy, payload: s
                     }
                 } else {
                     // 可能 doAuth 直接返回了 HTML 而不是重定向
-                    console.log(`[Core] roam: 未在URL中找到uniToken，尝试从最终页面提取...`);
+                    console.log("[Core] roam: 未在URL中找到uniToken，尝试从最终页面提取...");
                     const finalHtml = await uFetch(finalUrl);
                     const htmlTokenMatch = /uniToken=([^&"'<>\s]+)/.exec(finalHtml);
                     if (htmlTokenMatch && htmlTokenMatch[1]) {
@@ -389,7 +389,7 @@ export const roam = async (helper: InfoHelper, policy: RoamingPolicy, payload: s
                             if (tokenParsed.data.refreshToken) {
                                 (globalThis as any).__sportsRefreshToken = tokenParsed.data.refreshToken;
                             }
-                            console.log(`[Core] roam: JWT token获取成功!`);
+                            console.log("[Core] roam: JWT token获取成功!");
                             return tokenResult;
                         }
                     }
@@ -491,9 +491,9 @@ export const roam = async (helper: InfoHelper, policy: RoamingPolicy, payload: s
 };
 
 export const verifyAndReLogin = async (helper: InfoHelper): Promise<boolean> => {
-    console.log(`[Core] verifyAndReLogin: 开始验证登录状态...`);
+    console.log("[Core] verifyAndReLogin: 开始验证登录状态...");
     if (outstandingLoginPromise) {
-        console.log(`[Core] verifyAndReLogin: 有正在进行的登录，等待完成...`);
+        console.log("[Core] verifyAndReLogin: 有正在进行的登录，等待完成...");
         await outstandingLoginPromise;
         return true;
     }
@@ -507,7 +507,7 @@ export const verifyAndReLogin = async (helper: InfoHelper): Promise<boolean> => 
     } catch (e: any) {
         console.error(`[Core] verifyAndReLogin: 验证失败: ${e.message}`);
     }
-    console.log(`[Core] verifyAndReLogin: 需要重新登录...`);
+    console.log("[Core] verifyAndReLogin: 需要重新登录...");
     const {userId, password} = helper;
     await login(helper, userId, password);
     return true;
@@ -538,7 +538,7 @@ export const roamingWrapper = async <R>(
                     console.log(`[Core] roamingWrapper: 第一次 roam 失败: ${e2.message}, 重试 roam...`);
                     result = await roam(helper, policy, payload);
                 }
-                console.log(`[Core] roamingWrapper: roam 成功，重新执行 operation...`);
+                console.log("[Core] roamingWrapper: roam 成功，重新执行 operation...");
                 return await operation(result);
             }
         } else {
@@ -548,7 +548,7 @@ export const roamingWrapper = async <R>(
         console.log(`[Core] roamingWrapper: 外层 catch 捕获错误: ${e.message}, 尝试 verifyAndReLogin...`);
         const reLoggedIn = await verifyAndReLogin(helper);
         if (reLoggedIn) {
-            console.log(`[Core] roamingWrapper: 重新登录成功，再次尝试 operation...`);
+            console.log("[Core] roamingWrapper: 重新登录成功，再次尝试 operation...");
             if (policy) {
                 const result = await roam(helper, policy, payload);
                 return await operation(result);
@@ -558,7 +558,7 @@ export const roamingWrapper = async <R>(
         } else {
             // 用户身份验证正确但操作仍然失败（可能是WebVPN隧道过期）
             // 强制重新登录以重建WebVPN session
-            console.log(`[Core] roamingWrapper: 用户已登录但操作失败，强制重新登录以重建WebVPN隧道...`);
+            console.log("[Core] roamingWrapper: 用户已登录但操作失败，强制重新登录以重建WebVPN隧道...");
             try {
                 const {userId, password} = helper;
                 await login(helper, userId, password);

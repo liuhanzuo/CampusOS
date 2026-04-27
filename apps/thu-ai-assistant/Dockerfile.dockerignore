@@ -1,0 +1,66 @@
+# 本文件与 Dockerfile 同目录时，Docker 20.10+ 会在 `docker build -f apps/thu-ai-assistant/Dockerfile .`
+# 这种以仓库根为构建上下文的场景下优先读取它，其规则相对上下文根（即仓库根）解析。
+
+# ===== 所有应用的巨型 node_modules / 构建产物 =====
+node_modules
+**/node_modules
+**/dist
+**/build
+**/.next
+**/coverage
+
+# ===== Git / CI / IDE / 本地工具 =====
+.git
+.github
+.husky
+.vscode
+.idea
+.codebuddy
+.claude
+.bundle
+
+# ===== thu-info-app（另一个 app，本镜像不需要） =====
+apps/thu-info-app
+
+# ===== thu-ai-assistant 中的调试脚本、截图、网页快照 =====
+apps/thu-ai-assistant/debug-*
+apps/thu-ai-assistant/test-*.ts
+apps/thu-ai-assistant/explore-*.ts
+apps/thu-ai-assistant/search-*.ts
+apps/thu-ai-assistant/extract-*.ts
+apps/thu-ai-assistant/parse-*.ts
+apps/thu-ai-assistant/verify-*.ts
+apps/thu-ai-assistant/token-tool.ts
+apps/thu-ai-assistant/use-sports-bot.ts
+apps/thu-ai-assistant/brute-force-apis.ts
+apps/thu-ai-assistant/selenium-debug.png
+apps/thu-ai-assistant/selenium-extract-data.ts
+apps/thu-ai-assistant/selenium-login.ts
+apps/thu-ai-assistant/selenium-sports.ts
+apps/thu-ai-assistant/simple-login*.ts
+apps/thu-ai-assistant/auto-login.ts
+apps/thu-ai-assistant/sports-bot.ts
+apps/thu-ai-assistant/cli-sports.ts
+apps/thu-ai-assistant/quick-sports.ts
+apps/thu-ai-assistant/jsindex.js
+apps/thu-ai-assistant/jwt-token.txt
+apps/thu-ai-assistant/window-polyfill.js
+apps/thu-ai-assistant/working-apis.json
+apps/thu-ai-assistant/screenshots
+apps/thu-ai-assistant/screenshot-*.png
+apps/thu-ai-assistant/page-source.html
+apps/thu-ai-assistant/info-sports-response.html
+
+# ===== 仓库根上的实验脚本（非应用依赖） =====
+get-sports-token.js
+test-sports-api.js
+test-sports-auth.js
+test-sports.ts
+test_hash.js
+temp_jsindex.js
+release-notes.md
+
+# ===== 日志与操作系统杂项 =====
+*.log
+.DS_Store
+Thumbs.db

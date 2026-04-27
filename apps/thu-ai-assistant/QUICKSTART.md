@@ -96,6 +96,8 @@ npm run test:sports
 
 详细文档请查看：[SPORTS_README.md](SPORTS_README.md)
 
+需要容器化部署或参与 CI/CD 发版？请查看：[DOCKER.md](DOCKER.md)
+
 ---
 
 **注意**：请遵守清华大学的体育场馆预约规定，不要频繁操作。

@@ -1,0 +1,30 @@
+name: Setup thu-ai-assistant
+description: >-
+  复合 Action：为 thu-ai-assistant 的 CI / Build / Release 三条流水线统一
+  准备 Node.js 运行时并安装 monorepo 依赖。调用前请先由调用方执行 actions/checkout。
+
+inputs:
+  node-version:
+    description: Node.js 主版本号
+    required: false
+    default: "24"
+  install:
+    description: 是否执行 yarn install（设为 "false" 可仅准备 Node 运行时）
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js ${{ inputs.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: yarn
+
+    - name: Install workspace dependencies (frozen lockfile)
+      if: ${{ inputs.install == 'true' }}
+      shell: bash
+      run: |
+        corepack enable || true
+        yarn install --frozen-lockfile --network-timeout 600000

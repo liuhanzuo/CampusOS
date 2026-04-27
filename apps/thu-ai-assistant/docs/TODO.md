@@ -61,7 +61,7 @@ This file tracks the concrete engineering work needed to turn `thu-ai-assistant`
 - [ ] Add unit tests for relative date parsing.
 - [ ] Add route tests for login status, chat auth gating, and clear history.
 - [ ] Add service-level tests using the `InfoHelper` mock account where possible.
-- [ ] Add a lightweight build check to CI for `apps/thu-ai-assistant`.
+- [x] Add a lightweight build check to CI for `apps/thu-ai-assistant`. _(实现见 `.github/workflows/thu-ai-assistant-ci.yml`)_
 - [ ] Add manual verification docs for real THU login, 2FA, campus card recharge, sports query, and sports booking.
 
 ## Repository Hygiene
