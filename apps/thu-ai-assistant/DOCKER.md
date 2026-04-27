@@ -44,19 +44,38 @@ docker run --rm -it \
 
 ---
 
-## 2. CI/CD 所需的 GitHub Secrets
+## 2. CI/CD 镜像仓库（GHCR，零配置）
 
-在 GitHub 仓库页面：**Settings → Secrets and variables → Actions → New repository secret**，按下表添加：
+本项目使用 **GitHub Container Registry (`ghcr.io`)** 托管镜像，**无需任何额外 Secret 配置**：
+workflow 已使用 GitHub Actions 自动注入的 `GITHUB_TOKEN` 完成登录与推送。
 
-| Secret 名 | 示例 | 说明 |
-|---|---|---|
-| `REGISTRY_URL` | `ghcr.io/<owner>`、`registry.cn-beijing.aliyuncs.com/<ns>` | 镜像仓库 host + 命名空间前缀，**不要带 `/thu-ai-assistant`**（workflow 自动拼接） |
-| `REGISTRY_USERNAME` | `your-bot-account` | 推送账号用户名 |
-| `REGISTRY_TOKEN` | `ghp_xxx` / `…` | 推送凭证（PAT 或 registry token，建议只给 `write:packages` 范围） |
+镜像地址规则：
 
-> 若使用 GitHub Container Registry (GHCR)，`REGISTRY_URL` 填 `ghcr.io/<your-github-user-or-org>`，`REGISTRY_USERNAME` 填 GitHub 用户名，`REGISTRY_TOKEN` 填具备 `write:packages` 权限的 PAT。
+```
+ghcr.io/<github-owner>/thu-ai-assistant:<tag>
+```
 
-三个 Secret 缺任一项，`thu-ai-assistant-build` / `thu-ai-assistant-release` 会在首步 fail-fast 并打印缺失项。
+例如对仓库 `liuhanzuo/CampusOS`，镜像即为：
+
+```
+ghcr.io/liuhanzuo/thu-ai-assistant:latest
+ghcr.io/liuhanzuo/thu-ai-assistant:<commit-sha7>
+ghcr.io/liuhanzuo/thu-ai-assistant:1.2.3   # 由 git tag 触发的版本镜像
+```
+
+### 镜像可见性
+
+首次推送后，镜像默认是 **私有**。如需公开拉取：
+
+1. 打开 `https://github.com/users/<owner>/packages/container/thu-ai-assistant/settings`
+2. 滚到底部 **Danger Zone → Change visibility → Public**
+
+### 拉取私有镜像
+
+```bash
+echo "<your-PAT-with-read:packages>" | docker login ghcr.io -u <your-github-user> --password-stdin
+docker pull ghcr.io/<owner>/thu-ai-assistant:latest
+```
 
 ---
 
@@ -85,7 +104,7 @@ git push origin thu-ai-assistant-v1.2.3
 等待 Actions 跑完后，GitHub → Releases 页面会出现 `thu-ai-assistant 1.2.3`，其中包含自动生成的 changelog 和：
 
 ```bash
-docker pull <REGISTRY_URL>/thu-ai-assistant:1.2.3
+docker pull ghcr.io/<owner>/thu-ai-assistant:1.2.3
 ```
 
 ### 回滚
@@ -93,7 +112,7 @@ docker pull <REGISTRY_URL>/thu-ai-assistant:1.2.3
 直接拉取之前的版本 tag 镜像即可：
 
 ```bash
-docker pull <REGISTRY_URL>/thu-ai-assistant:1.2.2
+docker pull ghcr.io/<owner>/thu-ai-assistant:1.2.2
 ```
 
 ---
