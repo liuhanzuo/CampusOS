@@ -58,7 +58,8 @@ export type LoginCallback = {
 export class SportsSeleniumService {
     private driver: WebDriver | null = null;
     private isLoggedIn: boolean = false;
-    private cookieDir = path.join(__dirname, '..', '.cookies');
+    private appRoot = path.join(__dirname, '..', '..', '..');
+    private cookieDir = path.join(this.appRoot, '.cookies');
     private cookieFile = path.join(this.cookieDir, 'sports-cookies.json');
 
     // 体育场馆列表
@@ -938,7 +939,7 @@ export class SportsSeleniumService {
 
         try {
             const screenshot = await this.driver.takeScreenshot();
-            const screenshotPath = path.join(__dirname, '..', 'screenshots', filename);
+            const screenshotPath = path.join(this.appRoot, 'screenshots', filename);
             const screenshotDir = path.dirname(screenshotPath);
 
             if (!fs.existsSync(screenshotDir)) {

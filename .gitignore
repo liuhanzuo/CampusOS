@@ -53,6 +53,14 @@ local.properties
 node_modules/
 npm-debug.log
 yarn-error.log
+.npm-cache/
+
+# thu-ai-assistant local runtime artifacts
+apps/thu-ai-assistant/.env
+apps/thu-ai-assistant/.cookies/
+apps/thu-ai-assistant/dist/
+apps/thu-ai-assistant/server*.log
+apps/thu-ai-assistant/screenshots/
 
 # testing
 /coverage

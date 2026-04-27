@@ -129,7 +129,7 @@ POST http://localhost:3000/api/sports/logout
 在开发时，可以关闭无头模式查看浏览器操作：
 
 ```typescript
-// 在 sports-selenium-service.ts 中
+// 在 src/services/sports-selenium/sports-selenium-service.ts 中
 await sportsSeleniumService.login(userId, password, callbacks, false); // false = 显示浏览器
 ```
 
@@ -207,17 +207,17 @@ await sportsSeleniumService.login(userId, password, callbacks, true); // true = 
 
 ```
 apps/thu-ai-assistant/src/
-├── sports-selenium-service.ts  # Selenium服务核心类
-├── terminal-login.ts            # 终端交互工具
-├── cli-sports.ts               # 命令行工具主程序
-└── server.ts                   # Express服务器（包含API端点）
+├── services/sports-selenium/sports-selenium-service.ts  # Selenium服务核心类
+├── terminal-login.ts                                      # 终端交互工具
+├── cli-sports.ts                                         # 命令行工具主程序
+└── server.ts                                             # Express服务器（包含API端点）
 ```
 
 ### 扩展功能
 
 如需添加新功能：
 
-1. 在 `sports-selenium-service.ts` 中添加新方法
+1. 在 `src/services/sports-selenium/sports-selenium-service.ts` 中添加新方法
 2. 在 `cli-sports.ts` 中添加菜单选项
 3. 在 `server.ts` 中添加对应的API端点
 
@@ -226,7 +226,7 @@ apps/thu-ai-assistant/src/
 启用详细日志：
 
 ```typescript
-// 在 sports-selenium-service.ts 中
+// 在 src/services/sports-selenium/sports-selenium-service.ts 中
 this.log('调试信息'); // 使用this.log输出日志
 ```
 

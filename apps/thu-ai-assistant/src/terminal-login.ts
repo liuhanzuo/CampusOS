@@ -4,7 +4,7 @@
  */
 
 import * as readline from 'readline';
-import { LoginCallback } from './sports-selenium-service';
+import { LoginCallback } from './services/sports-selenium/sports-selenium-service';
 
 /**
  * 创建readline接口

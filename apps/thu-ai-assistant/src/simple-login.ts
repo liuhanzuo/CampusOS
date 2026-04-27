@@ -4,13 +4,8 @@
  * 用于调试登录问题
  */
 
-// Node.js 环境 polyfill
-declare global {
-  var window: unknown;
-}
-
 if (typeof globalThis.window === "undefined") {
-    globalThis.window = globalThis;
+    (globalThis as any).window = globalThis;
 }
 
 import * as readline from 'readline';

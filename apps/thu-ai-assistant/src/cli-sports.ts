@@ -6,15 +6,10 @@
 
 import * as readline from 'readline';
 
-// Node.js 环境 polyfill
-declare global {
-  var window: unknown;
-}
-
 if (typeof globalThis.window === "undefined") {
-    globalThis.window = globalThis;
+    (globalThis as any).window = globalThis;
 }
-import { sportsSeleniumService } from './sports-selenium-service';
+import { sportsSeleniumService } from './services/sports-selenium/sports-selenium-service';
 import {
     createReadlineInterface,
     createLoginCallbacks,
