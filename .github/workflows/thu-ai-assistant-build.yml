@@ -14,6 +14,8 @@ on:
       - "lerna.json"
       - ".github/workflows/thu-ai-assistant-build.yml"
       - ".github/workflows/thu-ai-assistant-release.yml"
+  # 允许在 Actions 页面手动触发（方便调试和重跑）
+  workflow_dispatch:
 
 # 同一分支上多次 push 时串行执行，避免镜像 tag 竞争
 concurrency:
