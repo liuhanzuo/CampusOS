@@ -402,6 +402,48 @@
             box-shadow: 0 4px 12px rgba(22, 163, 74, 0.4);
         }
 
+        /* 体育预约验证码卡片 */
+        .sports-captcha-card {
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-radius: 12px;
+            padding: 16px;
+            margin: 12px 0;
+        }
+
+        .sports-captcha-card h4 {
+            color: #334155;
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+
+        .sports-captcha-card p {
+            color: #64748b;
+            font-size: 13px;
+            margin-bottom: 10px;
+        }
+
+        .sports-captcha-btn {
+            padding: 10px 18px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .sports-captcha-btn.secondary {
+            background: #f1f5f9;
+            color: #475569;
+        }
+
+        .sports-captcha-btn:disabled {
+            background: #cbd5e1;
+            cursor: not-allowed;
+        }
+
         /* 支付弹窗 */
         .pay-modal-overlay {
             position: fixed;
@@ -476,6 +518,63 @@
 
         .pay-modal .pay-modal-close:hover {
             background: #e5e7eb;
+        }
+
+        .sports-captcha-modal {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            width: min(1100px, 94vw);
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            animation: slideUp 0.3s ease;
+        }
+
+        .sports-captcha-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .sports-captcha-header h3 {
+            color: #334155;
+            font-size: 18px;
+        }
+
+        .sports-captcha-status {
+            color: #64748b;
+            font-size: 13px;
+            min-height: 18px;
+        }
+
+        .sports-captcha-stage {
+            background: #0f172a;
+            border-radius: 10px;
+            overflow: auto;
+            max-height: 68vh;
+            text-align: center;
+            touch-action: none;
+        }
+
+        .sports-captcha-stage img {
+            display: block;
+            max-width: 100%;
+            height: auto;
+            margin: 0 auto;
+            cursor: crosshair;
+            user-select: none;
+            -webkit-user-drag: none;
+        }
+
+        .sports-captcha-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            flex-wrap: wrap;
         }
 
         .typing-indicator {

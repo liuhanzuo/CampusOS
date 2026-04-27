@@ -16,6 +16,8 @@ export interface SportsResourcesInfo {
     count: number;              // a number representing the maximum number of fields that the user can reserve
     init: number;               // a number. If it is less than or equal to zero, then reservation is not available at the moment; else, if count is equal to zero, it represents the number of unpaid orders of the current user
     phone: string | undefined;  // a string representing the phone number of the user, or `undefined` if the user has never configured a phone number
+    statusCode?: "bookable" | "fully_booked" | "not_open" | "unknown";
+    statusMessage?: string;
     data: SportsResource[];
 }
 

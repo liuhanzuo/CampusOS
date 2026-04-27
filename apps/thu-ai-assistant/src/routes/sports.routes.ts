@@ -97,6 +97,68 @@ sportsRouter.post("/api/sports/book", async (req, res) => {
     }
 });
 
+sportsRouter.post("/api/sports/open-booking", async (req, res) => {
+    const sessionId = req.session.sessionId;
+    console.log(`[API] POST /api/sports/open-booking - sessionId=${sessionId}`);
+
+    if (!sessionId || !sessionManager.isLoggedIn(sessionId)) {
+        return res.status(401).json({ error: "请先登录" });
+    }
+
+    const { venueName, date } = req.body;
+
+    if (!venueName) {
+        return res.status(400).json({ error: "请提供场馆名称" });
+    }
+
+    try {
+        const result = await sportsSeleniumService.openInteractiveBookingPage(venueName, date);
+        res.json(result);
+    } catch (e: any) {
+        console.error("[API] 打开体育预约页失败:", e.message);
+        res.status(500).json({ error: e.message || "打开预约页失败" });
+    }
+});
+
+sportsRouter.get("/api/sports/captcha/screenshot", async (req, res) => {
+    const sessionId = req.session.sessionId;
+    console.log(`[API] GET /api/sports/captcha/screenshot - sessionId=${sessionId}`);
+
+    if (!sessionId || !sessionManager.isLoggedIn(sessionId)) {
+        return res.status(401).json({ error: "请先登录" });
+    }
+
+    try {
+        const result = await sportsSeleniumService.getCaptchaSnapshot();
+        res.json(result);
+    } catch (e: any) {
+        console.error("[API] 获取体育验证码截图失败:", e.message);
+        res.status(500).json({ error: e.message || "获取验证码截图失败" });
+    }
+});
+
+sportsRouter.post("/api/sports/captcha/drag", async (req, res) => {
+    const sessionId = req.session.sessionId;
+    console.log(`[API] POST /api/sports/captcha/drag - sessionId=${sessionId}`);
+
+    if (!sessionId || !sessionManager.isLoggedIn(sessionId)) {
+        return res.status(401).json({ error: "请先登录" });
+    }
+
+    const { points } = req.body;
+    if (!Array.isArray(points)) {
+        return res.status(400).json({ error: "请提供拖动轨迹 points" });
+    }
+
+    try {
+        const result = await sportsSeleniumService.replayCaptchaDrag(points);
+        res.json(result);
+    } catch (e: any) {
+        console.error("[API] 回放体育验证码拖动失败:", e.message);
+        res.status(500).json({ error: e.message || "回放拖动失败" });
+    }
+});
+
 sportsRouter.post("/api/sports/logout", async (_req, res) => {
     try {
         await sportsSeleniumService.close();

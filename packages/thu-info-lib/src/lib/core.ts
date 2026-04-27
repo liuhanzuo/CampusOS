@@ -58,6 +58,14 @@ const HOST_MAP: { [key: string]: string } = {
     "madmodel.cs": "77726476706e69737468656265737421fdf6459128346d5c300b9ae28c462a3b27469fc32211fa26a3e464",
 };
 
+const PROTOCOL_HOST_MAP: { [key: string]: { [key: string]: string } } = {
+    myhome: {
+        https: "77726476706e69737468656265737421fdb94c852f3f6555301c9aa596522b20e7a45e0b22fda391",
+        "http-80": "77726476706e69737468656265737421fdee49932a3526446d0187ab9040227bca90a6e14cc9",
+        http: "77726476706e69737468656265737421fdee49932a3526446d0187ab9040227bca90a6e14cc9",
+    },
+};
+
 const SM2_MAGIC_NUMBER = "04";
 
 const getWebVPNUrl = (urlIn: string): string => {
@@ -71,6 +79,14 @@ const getWebVPNUrl = (urlIn: string): string => {
     const port = url.port || (scheme == "https" ? "443" : "80");
     const uri = url.pathname + (url.search ? url.search : "") + (url.hash ? url.hash : "");
     return `https://oauth.tsinghua.edu.cn/lb-auth/lbredirect?scheme=${scheme}&host=${host}&port=${port}&uri=${uri}`;
+};
+
+const getHostHash = (host: string, protocolFull: string, protocol: string): string | undefined => {
+    const protocolMap = PROTOCOL_HOST_MAP[host];
+    if (protocolMap) {
+        return protocolMap[protocolFull] ?? protocolMap[protocol];
+    }
+    return HOST_MAP[host];
 };
 
 const parseUrl = (urlIn: string) => {
@@ -89,12 +105,12 @@ const parseUrl = (urlIn: string) => {
         throw new UrlError();
     }
     const host = regRes[1];
-    const hostHash = HOST_MAP[host];
+    const protocolFull = regRes[3] === undefined ? protocol : `${protocol}-${regRes[3]}`;
+    const hostHash = getHostHash(host, protocolFull, protocol);
     if (hostHash === undefined) {
         console.log(`[Core] parseUrl: host "${host}" 不在 HOST_MAP 中，使用 getWebVPNUrl 动态生成`);
         return getWebVPNUrl(urlIn);
     }
-    const protocolFull = regRes[3] === undefined ? protocol : `${protocol}-${regRes[3]}`;
     const path = regRes[4];
     return `https://webvpn.tsinghua.edu.cn/${protocolFull}/${hostHash}/${path}`;
 };

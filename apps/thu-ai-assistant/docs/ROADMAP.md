@@ -1,33 +1,38 @@
-# THU AI Assistant Roadmap
+# THU AI Assistant 路线图
 
-## Implemented
+## 已完成
 
-- Main THU login and 2FA session flow.
-- Chat endpoint with LLM tool calling loop (GLM / DeepSeek via `.env`).
-- Query tools for schedule, sports resources, grades, campus card, electricity, library, news, calendar, classrooms, and sports venue list.
-- Campus card recharge tool that returns a payment URL for QR rendering.
-- Selenium-based sports query and booking APIs outside the agent tool loop.
-- Basic route, agent, tool, config, session, and service boundaries.
-- `.env` auto-loading via `dotenv` (GLM_API_KEY, THU_USER_ID, THU_PASSWORD, etc.).
-- HTTP redirect handling expanded to 301/302/303/307/308 (was only 301/302).
-- WebVPN hash reverse-mapping for myhome.tsinghua.edu.cn (dorm + electricity).
+- 已打通清华主登录与 2FA 会话流程。
+- 已实现带工具调用循环的聊天接口，当前可通过 `.env` 使用 GLM / DeepSeek。
+- 已接入课程表、体育资源、成绩、校园卡、电费、图书馆、新闻、教学日历、教室、体育场馆列表等查询工具。
+- 已实现校园卡充值工具，可返回支付链接供前端渲染二维码。
+- 已提供独立于 Agent 工具循环之外的 Selenium 体育查询与预约 API。
+- 已形成基本的 `route / agent / tool / config / session / service` 分层边界。
+- 已通过 `dotenv` 支持 `.env` 自动加载（如 `GLM_API_KEY`、`THU_USER_ID`、`THU_PASSWORD` 等）。
+- 已将 HTTP 手动重定向处理扩展到 `301/302/303/307/308`，不再只支持 `301/302`。
+- 已补充 `myhome.tsinghua.edu.cn` 的 WebVPN hash 反查恢复逻辑，用于宿舍/电费等链路。
+- 已增加 `GET /api/health`，可用于服务活性检查和重启后验证。
 
-## In Progress
+## 进行中
 
-- **Electricity query**: `roam("id")` CAS flow redirects to `myhome.tsinghua.edu.cn`. The roaming step succeeds via `lb-auth/lbredirect`, but the subsequent `uFetch(ELE_REMAINDER_URL)` to the `webvpn.tsinghua.edu.cn/http/HASH/...` URL receives a login page (53877 bytes) instead of data. Root cause: `lb-auth` establishes a session with the `oauth` proxy, but the `webvpn` proxy tunnel for `myhome` is not activated — these two proxy paths do not share per-host tunnel state. The `WEBVPN_HASH_TO_ORIGIN` auto-recovery in `network.ts` should kick in on `wengine-vpn/failed`, but the `webvpn` proxy is returning 200 with a login page HTML instead of a redirect to `wengine-vpn/failed`, so the recovery path is never triggered. **Likely fix**: the electricity host (`myhome.tsinghua.edu.cn`) needs a `HOST_MAP` entry in `core.ts` so `parseUrl()` generates a `webvpn`-format URL instead of falling back to `lb-auth`, keeping the entire flow on the same proxy; or the `uFetch` for `ELE_REMAINDER_URL` needs to be routed through `lb-auth/lbredirect` as well instead of the direct `webvpn` hash URL.
-- Sports API reliability and payload mapping.
-- Moving remaining single-file service modules toward domain-specific services.
+- **预约能力主线**：当前开发重点转向“体育场馆预约 + 图书馆研读间/座位预约”。核心任务不是再补更多查询，而是把现有底层能力整理成可由 Agent 安全执行的预约闭环。
+- **体育 API 稳定性与映射问题**：当前接口族已经切到新系统，但 payload 到资源结果的映射仍需继续收敛。
+- **体育预约链路**：当前已有 Selenium 查询/预约接口，但仍缺记录查询、取消预约、显式确认协议，以及按用户会话隔离的运行方式。
+- **图书馆研读间预约链路**：`@thu-info/lib` 已具备查询、预约、记录、取消等原子能力，当前主要缺的是 `thu-ai-assistant` 服务封装和 Agent 工具接入。
+- **服务层拆分**：现有单文件服务模块仍在向按领域拆分的方向推进。
 
-## Next
+## 下一步
 
-- Add sports booking as an agent tool after the Selenium/API path is stable.
-- Add library room query and booking tools.
-- Split `services/thu/data-service.ts` by domain when booking flows are added.
-- Move the static frontend into separate `index.html`, `styles.css`, and `app.js` files, or migrate to a small Vite app.
+- 把体育预约能力正式接入 Agent 工具层，至少覆盖“准备预约 -> 用户确认 -> 执行预约”。
+- 增加体育预约记录查询和取消工具。
+- 增加图书馆研读间资源查询、预约、记录、取消工具。
+- 视交互复杂度再补图书馆座位预约工具。
+- 在预约类流程落地后，按领域拆分 `services/thu/data-service.ts`。
+- 将静态前端拆分为 `index.html`、`styles.css`、`app.js`，或迁移到一个小型 Vite 应用。
 
-## Risks
+## 风险
 
-- THU sports endpoints are unstable and should be validated against the live frontend before changing behavior.
-- Booking/payment/captcha tools need explicit confirmation flows before executing irreversible actions.
-- Local `.env` is loaded but credentials (THU_USER_ID, THU_PASSWORD, GLM_API_KEY) must not be committed to git.
-- Electricity query blocked by proxy mismatch: `roam("id")` → `lb-auth` proxy, but `ELE_REMAINDER_URL` → `webvpn` proxy; tunnel state not shared between the two.
+- 清华体育接口会漂移，修改行为前必须先对照线上前端验证。
+- 预约、支付、验证码等能力涉及真实操作，必须有显式确认流程。
+- 本地 `.env` 虽然已经自动加载，但 `THU_USER_ID`、`THU_PASSWORD`、`GLM_API_KEY` 等凭据绝不能提交到 git。
+- 体育 Selenium 自动化目前仍偏脆弱，且全局单例设计不适合多用户或并发预约场景。

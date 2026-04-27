@@ -98,8 +98,10 @@ export async function getSportsResourceInfo(
                     venueName: venue.name,
                     date: targetDate,
                     maxBookable: resources.count,
-                    available: resources.init > 0,
+                    available: resources.data.some((r) => r.canNetBook && !r.bookId),
                     phone: resources.phone,
+                    statusCode: resources.statusCode || "unknown",
+                    statusMessage: resources.statusMessage || "暂时无法判断当前场馆的可预约状态。",
                     fields: resources.data.map((r) => ({
                         fieldName: r.fieldName,
                         timeSession: r.timeSession,

@@ -1,80 +1,105 @@
-# THU AI Assistant TODO
+# THU AI Assistant 待办清单
 
-This file tracks the concrete engineering work needed to turn `thu-ai-assistant` from a working demo into a maintainable action-taking campus agent.
+这份文档用于跟踪 `thu-ai-assistant` 从“能跑的演示”走向“可维护、可执行真实校园操作的 Agent”所需的具体工程工作。
 
-## Agent Tools
+## 当前最需要明确的问题
 
-- [ ] Add a sports booking tool that can reserve a selected venue/time slot after explicit user confirmation.
-- [ ] Add a sports booking records tool for checking current reservations.
-- [ ] Add a sports cancellation tool, gated behind explicit confirmation.
-- [ ] Add a library room resource query tool.
-- [ ] Add a library room booking tool, gated behind explicit confirmation.
-- [ ] Add a library room cancellation tool, gated behind explicit confirmation.
-- [ ] Add campus card transaction query tools.
-- [ ] Add network account and online device tools if they are useful in the assistant flow.
-- [ ] Define a shared confirmation protocol for irreversible actions such as booking, cancellation, and payment.
-- [ ] Add result schemas for every tool so model-facing output stays compact and predictable.
+- [ ] 先把“预约能力”主线明确下来：体育预约优先，图书馆研读间次之，图书馆座位再次之。
+- [ ] 为所有真实动作补统一确认协议和待确认动作缓存，否则 Agent 不能安全执行预约/取消/支付。
+- [ ] 体育预约虽然已有 Selenium 路径，但仍缺“记录查询 / 取消预约 / 按用户会话隔离”这三个关键环节。
+- [ ] 图书馆研读间预约底层接口已具备，但还没有封装成 `thu-ai-assistant` 的服务层和 Agent 工具。
+- [ ] 体育查询虽然已经切到当前系统接口族，但资源字段映射仍不稳定，仍需继续排查 `fields` 为空或可预约信息不完整的问题。
+- [ ] 电费查询暂时降级处理，后续再回到代理链路问题。
+- [x] 已补 `GET /api/health`，可用于前端启动检查、进程存活验证和重启确认。
+- [ ] `src/services/thu/data-service.ts` 职责过多，随着预约类能力增加，继续堆在一个文件里会明显降低可维护性。
+- [ ] 体育 Selenium 目前是单例服务，是否应切换为“按用户会话隔离”的状态管理还没有定。
 
-## Service Layer
+## Agent 工具
 
-- [ ] Split `src/services/thu/data-service.ts` by domain once booking flows are added:
+- [ ] 增加体育预约准备工具，用于标准化场馆、日期、时段参数，并生成确认摘要。
+- [ ] 增加体育预约确认工具，在用户明确确认后执行真实预约。
+- [ ] 增加体育预约工具，在用户明确确认后执行指定场馆/时段的预约。
+- [ ] 增加体育预约记录查询工具。
+- [ ] 增加体育预约取消工具，并强制走确认流程。
+- [ ] 增加图书馆研读间资源查询工具。
+- [ ] 增加图书馆研读间预约准备工具。
+- [ ] 增加图书馆研读间预约确认工具，并强制走确认流程。
+- [ ] 增加图书馆研读间预约记录查询工具。
+- [ ] 增加图书馆研读间取消预约工具，并强制走确认流程。
+- [ ] 增加图书馆研读间/座位资源查询工具。
+- [ ] 增加图书馆预约工具，并强制走确认流程。
+- [ ] 增加图书馆取消预约工具，并强制走确认流程。
+- [ ] 增加图书馆座位资源查询工具。
+- [ ] 增加图书馆座位预约准备/确认/取消工具。
+- [ ] 增加校园卡交易记录查询工具。
+- [ ] 评估是否需要加入网络账号、在线设备等工具，以补足校园助手的常用场景。
+- [ ] 为预约、取消、支付这类不可逆操作定义统一确认协议。
+- [ ] 为每个工具补齐稳定的结果 schema，避免模型面对过长、过散的自由格式输出。
+
+## 服务层
+
+- [ ] 在预约类流程落地后，按领域拆分 `src/services/thu/data-service.ts`：
   - [ ] `schedule.service.ts`
   - [ ] `sports.service.ts`
   - [ ] `card.service.ts`
   - [ ] `library.service.ts`
   - [ ] `classroom.service.ts`
   - [ ] `news.service.ts`
-- [ ] Move sports venue metadata into a single shared source to avoid duplicate lists.
-- [ ] Stabilize the sports resource payload mapping for the current THU sports frontend API.
-- [ ] Decide whether Selenium sports booking remains the primary implementation or becomes a fallback.
-- [ ] Add typed service return models instead of ad hoc object literals.
+- [ ] 新建 `src/services/sports/booking-service.ts`，把体育预约相关逻辑从查询逻辑中分离出来。
+- [ ] 新建 `src/services/library/room-booking-service.ts`，封装研读间查询、预约、记录、取消。
+- [ ] 新建 `src/services/library/seat-booking-service.ts`，封装座位查询、预约、记录、取消。
+- [ ] 将体育场馆元数据收敛到单一共享来源，避免重复维护列表。
+- [ ] 继续稳定当前清华体育前端 API 的 payload 映射逻辑。
+- [ ] 明确体育预约中 Selenium 路径是主实现，还是仅作为回退方案。
+- [ ] 用类型化的服务返回模型替代当前分散的对象字面量拼装。
 
-## LLM And Prompting
+## LLM 与提示词
 
-- [ ] Add provider abstraction for GLM, DeepSeek, and future OpenAI-compatible providers.
-- [ ] Move provider selection into `src/config/env.ts`.
-- [x] Add `.env` loading or document the exact shell-based startup path.
-- [ ] Keep the system prompt focused on behavior and move tool-specific details into tool descriptions where possible.
-- [ ] Add guardrails for user intent: query, prepare action, confirm action, execute action.
-- [ ] Add a max tool-round failure response that tells the user what failed and what to retry.
+- [ ] 抽象出 GLM、DeepSeek，以及未来兼容 OpenAI 协议提供方的统一 provider 层。
+- [ ] 将 provider 选择逻辑统一收敛到 `src/config/env.ts`。
+- [x] 已支持 `.env` 自动加载，或至少有清晰的 shell 启动路径。
+- [ ] 让系统提示词更聚焦行为约束，把工具细节尽量下沉到工具定义说明里。
+- [ ] 增加用户意图护栏：查询、准备执行、确认执行、真正执行。
+- [ ] 为多轮工具调用失败补一条统一兜底回复，明确告诉用户失败点和建议重试方式。
 
-## API And Session
+## API 与会话
 
-- [ ] Add `GET /api/health` for frontend startup checks and live verification.
-- [ ] Add a shared authenticated route helper to remove repeated session checks in route files.
-- [ ] Add request validation helpers for route payloads.
-- [ ] Add structured API error responses with stable `code` and `message` fields.
-- [ ] Decide whether sports Selenium login state should be per user session instead of a singleton service.
-- [ ] Add session cleanup tests for expiration and logout behavior.
+- [x] 已增加 `GET /api/health`，用于前端启动检查、开发时活性验证和重启确认。
+- [ ] 在 session 中增加 pending action 存储，用于预约/取消/支付确认。
+- [ ] 抽出统一的已登录路由守卫，去掉各个 route 文件里重复的 session 检查逻辑。
+- [ ] 增加请求参数校验辅助函数。
+- [ ] 为 API 错误补齐稳定的结构化返回，例如固定 `code` 和 `message`。
+- [ ] 明确体育 Selenium 登录态是否应按用户 session 管理，而不是全局单例。
+- [ ] 增加 session 过期、登出、清理相关测试。
 
-## Frontend
+## 前端
 
-- [ ] Split `public/index.html` into `index.html`, `styles.css`, and `app.js`.
-- [ ] Add a startup hint when the page is opened via `file://` instead of the Express server.
-- [ ] Add UI for confirmation flows before bookings, cancellations, or payments.
-- [ ] Add better rendering for structured tool results.
-- [ ] Decide whether to migrate the frontend to a small Vite app once the agent flows stabilize.
+- [ ] 将 `public/index.html` 拆成 `index.html`、`styles.css` 和 `app.js`。
+- [ ] 当页面被 `file://` 直接打开时，给出明确的启动提示，而不是静默失败。
+- [ ] 为预约、取消、支付等高风险操作增加确认交互。
+- [ ] 更好地渲染结构化工具结果，而不是只依赖文本拼接。
+- [ ] 在 Agent 流程稳定后，决定是否迁移到一个小型 Vite 前端。
 
-## Testing And Verification
+## 测试与验证
 
-- [ ] Add unit tests for `agent/tools/index.ts` registry behavior.
-- [ ] Add unit tests for relative date parsing.
-- [ ] Add route tests for login status, chat auth gating, and clear history.
-- [ ] Add service-level tests using the `InfoHelper` mock account where possible.
-- [ ] Add a lightweight build check to CI for `apps/thu-ai-assistant`.
-- [ ] Add manual verification docs for real THU login, 2FA, campus card recharge, sports query, and sports booking.
+- [ ] 为 `agent/tools/index.ts` 的注册与分发行为补单元测试。
+- [ ] 为相对日期解析补单元测试。
+- [ ] 为登录状态、聊天鉴权、清空历史等路由补测试。
+- [ ] 在可行时基于 `InfoHelper` mock 账号补服务层测试。
+- [ ] 为 `apps/thu-ai-assistant` 增加一个轻量级 CI 构建检查。
+- [ ] 增加真实环境人工验证文档，覆盖登录、2FA、校园卡充值、体育查询、体育预约。
 
-## Repository Hygiene
+## 仓库整理
 
-- [ ] Decide whether `apps/thu-ai-assistant/dist/` should remain tracked; current `.gitignore` treats it as generated output.
-- [ ] Keep `.env`, `.cookies`, logs, screenshots, and local npm cache out of git.
-- [ ] Add a short developer setup section for local install/build/run.
-- [ ] Resolve the mixed npm/yarn workflow and document the preferred command set.
-- [ ] Avoid committing generated lockfile churn unless dependencies intentionally change.
+- [ ] 明确 `apps/thu-ai-assistant/dist/` 是否应该继续被跟踪；当前 `.gitignore` 把它视为构建产物。
+- [ ] 确保 `.env`、`.cookies`、日志、截图、本地 npm 缓存不进入 git。
+- [ ] 补一个最短可用的本地开发说明，覆盖安装、构建、运行。
+- [ ] 统一当前混用的 npm / yarn 工作流，并写清推荐命令。
+- [ ] 除非确实改了依赖，否则避免提交无意义的 lockfile 抖动。
 
-## Known Risks
+## 已知风险
 
-- [ ] THU sports endpoints may drift; verify against the live frontend before changing API behavior.
-- [ ] Booking/payment/cancellation tools can perform real-world actions and must require explicit confirmation.
-- [ ] Selenium automation may be brittle under UI or login changes.
-- [ ] Session and credential handling should be reviewed before exposing the assistant beyond local development.
+- [ ] 清华体育接口可能继续漂移，改行为前必须先对照线上前端验证。
+- [ ] 预约、支付、取消这类能力都可能触发真实世界操作，必须要求显式确认。
+- [ ] Selenium 自动化对页面结构和登录流程变更较敏感。
+- [ ] 在超出本地开发范围前，session 与凭据管理还需要进一步审视。

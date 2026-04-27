@@ -10,6 +10,7 @@
     "sports": "ts-node src/cli-sports.ts",
     "quick": "ts-node src/quick-sports.ts",
     "explore": "ts-node src/explore-sports.ts",
+    "open:sports-booking": "ts-node src/open-sports-booking.ts",
     "test:sports": "ts-node src/test-sports-selenium.ts",
     "test:login": "ts-node src/simple-login.ts"
   },

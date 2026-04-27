@@ -3,7 +3,7 @@
  * 使用 Selenium WebDriver 自动化清华大学体育场馆预约系统
  */
 
-import { Builder, Browser, By, until, WebDriver, WebElement, Key } from 'selenium-webdriver';
+import { Builder, Browser, By, until, WebDriver, WebElement, Key, Button, Origin } from 'selenium-webdriver';
 import { Options as ChromeOptions } from 'selenium-webdriver/chrome';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -13,6 +13,11 @@ export interface SportsVenue {
     name: string;
     gymId: string;
     itemId: string;
+}
+
+export interface InteractiveSportsVenue {
+    name: string;
+    sceneUuid: string;
 }
 
 // 时间段信息
@@ -42,6 +47,45 @@ export interface BookingResult {
     paymentUrl?: string;
 }
 
+export interface InteractiveBookingResult {
+    success: boolean;
+    message: string;
+    venueName: string;
+    date?: string;
+    url: string;
+    currentUrl?: string;
+}
+
+export interface CaptchaDragPoint {
+    x: number;
+    y: number;
+    t?: number;
+}
+
+export interface SportsCaptchaSnapshot {
+    success: boolean;
+    message: string;
+    imageDataUrl?: string;
+    currentUrl?: string;
+    viewport?: {
+        width: number;
+        height: number;
+        devicePixelRatio: number;
+    };
+    captchaRect?: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    } | null;
+}
+
+export interface SportsCaptchaDragResult {
+    success: boolean;
+    message: string;
+    currentUrl?: string;
+}
+
 // 登录状态回调
 export type LoginCallback = {
     onNeed2FAMethod?: (methods: string[]) => Promise<string>;
@@ -57,10 +101,12 @@ export type LoginCallback = {
  */
 export class SportsSeleniumService {
     private driver: WebDriver | null = null;
+    private driverHeadless: boolean | null = null;
     private isLoggedIn: boolean = false;
     private appRoot = path.join(__dirname, '..', '..', '..');
     private cookieDir = path.join(this.appRoot, '.cookies');
     private cookieFile = path.join(this.cookieDir, 'sports-cookies.json');
+    private webVpnSportsBase = 'https://webvpn.tsinghua.edu.cn/https/77726476706e69737468656265737421e7e056d2342067426a1bc7b88b5c2d32e0ef2d0b7581aac05baf/venue/index.html';
 
     // 体育场馆列表
     private venues: SportsVenue[] = [
@@ -74,10 +120,27 @@ export class SportsSeleniumService {
         { name: "西网球场", gymId: "5843934", itemId: "10120539" },
     ];
 
+    private interactiveVenues: InteractiveSportsVenue[] = [
+        { name: "气膜馆羽毛球场", sceneUuid: "de6ee04a27c940029d13b7d5f1ef8ce4" },
+        { name: "综体羽毛球场", sceneUuid: "d0c855def3b74cb19eb71b10c4afb50b" },
+        { name: "西体羽毛球后馆", sceneUuid: "1217221866f548d6b28800c04d51d551" },
+        { name: "西体羽毛球前馆", sceneUuid: "68f557c0f3a24f6ebcd181843d090dc7" },
+        { name: "紫荆网球场", sceneUuid: "119655767169427f9e53dd1bb97795ca" },
+        { name: "北体网球场", sceneUuid: "d405790f14a44411946b2b7e47e66b18" },
+    ];
+
     /**
      * 初始化浏览器驱动
      */
     private async initDriver(headless: boolean = true): Promise<WebDriver> {
+        if (this.driver) {
+            if (!headless && this.driverHeadless) {
+                await this.close();
+            } else {
+                return this.driver;
+            }
+        }
+
         if (this.driver) {
             return this.driver;
         }
@@ -96,14 +159,22 @@ export class SportsSeleniumService {
             .addArguments('--disable-extensions')
             .addArguments('--disable-dev-shm-usage')
             .addArguments('--no-sandbox')
+            .addArguments('--start-maximized')
             .addArguments('--disable-blink-features=AutomationControlled')
             .addArguments('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
             .excludeSwitches('enable-automation');
 
-        this.driver = await new Builder()
-            .forBrowser(Browser.CHROME)
-            .setChromeOptions(options)
-            .build();
+        const originalPath = process.env.PATH;
+        process.env.PATH = this.getPathWithoutChromedriver();
+        try {
+            this.driver = await new Builder()
+                .forBrowser(Browser.CHROME)
+                .setChromeOptions(options)
+                .build();
+        } finally {
+            process.env.PATH = originalPath;
+        }
+        this.driverHeadless = headless;
 
         // 设置隐式等待
         await this.driver.manage().setTimeouts({ implicit: 10000 });
@@ -121,6 +192,20 @@ export class SportsSeleniumService {
      */
     private log(message: string): void {
         console.log(`[Selenium] ${message}`);
+    }
+
+    private getPathWithoutChromedriver(): string | undefined {
+        return process.env.PATH
+            ?.split(path.delimiter)
+            .filter((entry) => {
+                try {
+                    fs.accessSync(path.join(entry, "chromedriver"), fs.constants.X_OK);
+                    return false;
+                } catch {
+                    return true;
+                }
+            })
+            .join(path.delimiter);
     }
 
     /**
@@ -659,6 +744,173 @@ export class SportsSeleniumService {
      */
     getVenues(): SportsVenue[] {
         return this.venues;
+    }
+
+    getInteractiveVenues(): InteractiveSportsVenue[] {
+        return this.interactiveVenues;
+    }
+
+    private findInteractiveVenue(venueName: string): InteractiveSportsVenue | undefined {
+        const normalized = venueName.trim();
+        return this.interactiveVenues.find((venue) =>
+            venue.name.includes(normalized) ||
+            normalized.includes(venue.name) ||
+            (normalized.includes("西体") && normalized.includes("后") && venue.name.includes("西体羽毛球后馆")) ||
+            (normalized.includes("西体") && normalized.includes("前") && venue.name.includes("西体羽毛球前馆")) ||
+            (normalized.includes("综体") && normalized.includes("羽毛球") && venue.name.includes("综体羽毛球")) ||
+            (normalized.includes("气膜") && normalized.includes("羽毛球") && venue.name.includes("气膜馆羽毛球")) ||
+            (normalized.includes("紫荆") && normalized.includes("网球") && venue.name.includes("紫荆网球")) ||
+            (normalized.includes("北体") && normalized.includes("网球") && venue.name.includes("北体网球"))
+        );
+    }
+
+    async openInteractiveBookingPage(venueName: string, date?: string): Promise<InteractiveBookingResult> {
+        const venue = this.findInteractiveVenue(venueName);
+        if (!venue) {
+            return {
+                success: false,
+                message: `未找到可自动打开的场馆: ${venueName}`,
+                venueName,
+                date,
+                url: "",
+            };
+        }
+
+        const driver = await this.initDriver(false);
+        const url = `${this.webVpnSportsBase}#/reserveList?uuid=${venue.sceneUuid}`;
+
+        this.log(`打开真实预约页: ${venue.name}${date ? `, 日期: ${date}` : ""}`);
+        await driver.get(url);
+        await driver.sleep(2500);
+
+        let currentUrl = "";
+        try {
+            currentUrl = await driver.getCurrentUrl();
+        } catch {
+            currentUrl = url;
+        }
+
+        return {
+            success: true,
+            message: date
+                ? `已打开 ${venue.name} 的预约页。请在浏览器中选择 ${date} 和目标时段；出现滑块后可在聊天界面打开验证码操作面板。`
+                : `已打开 ${venue.name} 的预约页。请在浏览器中选择日期和时段；出现滑块后可在聊天界面打开验证码操作面板。`,
+            venueName: venue.name,
+            date,
+            url,
+            currentUrl,
+        };
+    }
+
+    async getCaptchaSnapshot(): Promise<SportsCaptchaSnapshot> {
+        if (!this.driver) {
+            return {
+                success: false,
+                message: "浏览器尚未打开，请先打开体育预约页。",
+            };
+        }
+
+        const driver = this.driver;
+        const screenshot = await driver.takeScreenshot();
+        const [currentUrl, viewport, captchaRect] = await Promise.all([
+            driver.getCurrentUrl().catch(() => undefined),
+            driver.executeScript(() => ({
+                width: window.innerWidth,
+                height: window.innerHeight,
+                devicePixelRatio: window.devicePixelRatio || 1,
+            })) as Promise<{ width: number; height: number; devicePixelRatio: number }>,
+            driver.executeScript(() => {
+                const selectors = [
+                    '[class*="captcha"]',
+                    '[class*="verify"]',
+                    '[class*="slider"]',
+                    '[class*="drag"]',
+                    '.el-dialog',
+                    '[role="dialog"]',
+                ];
+
+                for (const selector of selectors) {
+                    const elements = Array.from(document.querySelectorAll(selector));
+                    for (const element of elements) {
+                        const rect = element.getBoundingClientRect();
+                        const style = window.getComputedStyle(element);
+                        if (
+                            rect.width >= 80 &&
+                            rect.height >= 30 &&
+                            style.display !== 'none' &&
+                            style.visibility !== 'hidden' &&
+                            Number(style.opacity || '1') > 0
+                        ) {
+                            return {
+                                x: rect.x,
+                                y: rect.y,
+                                width: rect.width,
+                                height: rect.height,
+                            };
+                        }
+                    }
+                }
+
+                return null;
+            }) as Promise<{ x: number; y: number; width: number; height: number } | null>,
+        ]);
+
+        return {
+            success: true,
+            message: "已截取当前体育预约浏览器画面。",
+            imageDataUrl: `data:image/png;base64,${screenshot}`,
+            currentUrl,
+            viewport,
+            captchaRect,
+        };
+    }
+
+    async replayCaptchaDrag(points: CaptchaDragPoint[]): Promise<SportsCaptchaDragResult> {
+        if (!this.driver) {
+            return {
+                success: false,
+                message: "浏览器尚未打开，请先打开体育预约页。",
+            };
+        }
+
+        const normalized = points
+            .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+            .map((point) => ({
+                x: Math.round(point.x),
+                y: Math.round(point.y),
+                t: typeof point.t === "number" ? point.t : undefined,
+            }));
+
+        if (normalized.length < 2) {
+            return {
+                success: false,
+                message: "拖动轨迹太短，请在滑块上按住并拖到缺口位置。",
+            };
+        }
+
+        const driver = this.driver;
+        let actions = driver.actions({ async: true });
+        const first = normalized[0];
+        actions = actions.move({ x: first.x, y: first.y, origin: Origin.VIEWPORT, duration: 100 }).press(Button.LEFT);
+
+        for (let i = 1; i < normalized.length; i++) {
+            const previous = normalized[i - 1];
+            const point = normalized[i];
+            const duration = point.t !== undefined && previous.t !== undefined
+                ? Math.max(16, Math.min(250, point.t - previous.t))
+                : 24;
+            actions = actions.move({ x: point.x, y: point.y, origin: Origin.VIEWPORT, duration });
+        }
+
+        actions = actions.release(Button.LEFT);
+        await actions.perform();
+        await driver.sleep(1200);
+
+        return {
+            success: true,
+            message: "已把拖动轨迹回放到体育预约浏览器，请查看验证码是否通过。",
+            currentUrl: await driver.getCurrentUrl().catch(() => undefined),
+        };
     }
 
     /**

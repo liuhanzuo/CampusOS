@@ -8,6 +8,7 @@ import { getLibraryTool } from "./library.tool";
 import { getNewsTool } from "./news.tool";
 import { getReportTool } from "./report.tool";
 import { getScheduleTool } from "./schedule.tool";
+import { openSportsBookingPageTool } from "./sports-booking-open.tool";
 import { getSportsResourcesTool } from "./sports-resources.tool";
 import { getAvailableSportsVenuesTool } from "./sports-venues.tool";
 import { AgentTool } from "./types";
@@ -23,6 +24,7 @@ const toolRegistry: AgentTool[] = [
     getCalendarTool,
     getClassroomTool,
     getAvailableSportsVenuesTool,
+    openSportsBookingPageTool,
     rechargeCampusCardTool,
 ];
 
