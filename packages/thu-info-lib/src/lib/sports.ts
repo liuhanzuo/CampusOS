@@ -124,9 +124,48 @@ const firstString = (record: PlainRecord, keys: string[]): string | undefined =>
         if (typeof value === "string" && value.trim() !== "") {
             return value.trim();
         }
+        if (typeof value === "number" && Number.isFinite(value)) {
+            return String(value);
+        }
     }
     return undefined;
 };
+
+const firstValue = (record: PlainRecord, keys: string[]): unknown => {
+    for (const key of keys) {
+        if (record[key] !== undefined && record[key] !== null && record[key] !== "") {
+            return record[key];
+        }
+    }
+    return undefined;
+};
+
+const firstStatusText = (record: PlainRecord): string =>
+    [
+        "status",
+        "statusName",
+        "state",
+        "stateName",
+        "reserveStatus",
+        "reserveStatusName",
+        "resvStatus",
+        "resvStatusName",
+        "siteStatus",
+        "siteStatusName",
+        "useStatus",
+        "useStatusName",
+        "bookStatus",
+        "bookStatusName",
+        "resvState",
+        "resvStateName",
+        "title",
+        "message",
+        "remark",
+    ]
+        .map((key) => record[key])
+        .filter((value) => value !== undefined && value !== null)
+        .map((value) => String(value).trim().toLowerCase())
+        .join(" ");
 
 const formatTimePart = (value: unknown): string | undefined => {
     if (typeof value !== "string" || value.trim() === "") return undefined;
@@ -144,36 +183,80 @@ const buildTimeSession = (record: PlainRecord): string => {
         "period",
         "timePeriod",
         "reserveTime",
+        "resvTime",
+        "timeName",
+        "timeLabel",
+        "periodName",
+        "resvPeriod",
+        "reservePeriod",
+        "periodTime",
     ]);
     if (direct) return direct;
 
-    const start = formatTimePart(record.startTime ?? record.reserveStartDate ?? record.beginTime);
-    const end = formatTimePart(record.endTime ?? record.reserveEndDate ?? record.finishTime);
+    const nestedTime = asRecord(record.resvTime ?? record.reserveTimeInfo ?? record.timeInfo);
+    if (nestedTime) {
+        const nestedDirect = firstString(nestedTime, ["timeSession", "time", "period", "timePeriod", "resvTime", "timeName", "timeLabel", "periodName"]);
+        if (nestedDirect) return nestedDirect;
+    }
+
+    const start = formatTimePart(
+        record.startTime ??
+        record.reserveStartDate ??
+        record.beginTime ??
+        record.resvStartTime ??
+        record.reserveBeginTime ??
+        record.openStartTime ??
+        record.startDate ??
+        nestedTime?.startTime ??
+        nestedTime?.reserveStartDate ??
+        nestedTime?.beginTime ??
+        nestedTime?.resvStartTime,
+    );
+    const end = formatTimePart(
+        record.endTime ??
+        record.reserveEndDate ??
+        record.finishTime ??
+        record.resvEndTime ??
+        record.reserveEndTime ??
+        record.endDate ??
+        nestedTime?.endTime ??
+        nestedTime?.reserveEndDate ??
+        nestedTime?.finishTime ??
+        nestedTime?.resvEndTime,
+    );
     if (start && end) return `${start}-${end}`;
     return "";
 };
 
 const looksLikeResourceRecord = (record: PlainRecord): boolean =>
     Boolean(
-        firstString(record, ["siteName", "fieldName", "field", "name", "siteLabel", "siteNo"]) ||
-        firstString(record, ["timeSession", "time", "period", "timePeriod"]) ||
-        formatTimePart(record.startTime ?? record.reserveStartDate ?? record.beginTime) ||
+        firstString(record, ["siteName", "fieldName", "field", "name", "siteLabel", "siteNo", "siteNoName", "propName", "location"]) ||
+        firstString(record, ["timeSession", "time", "period", "timePeriod", "resvTime", "timeName", "timeLabel", "periodName", "resvPeriod", "reservePeriod", "periodTime"]) ||
+        formatTimePart(record.startTime ?? record.reserveStartDate ?? record.beginTime ?? record.resvStartTime ?? record.reserveBeginTime ?? record.startDate) ||
         record.siteUuid || record.resId || record.id || record.uuid,
     );
 
+const hasExplicitSlotTime = (record: PlainRecord): boolean =>
+    Boolean(
+        firstString(record, ["timeSession", "time", "period", "timePeriod", "resvTime", "timeName", "timeLabel", "periodName", "resvPeriod", "reservePeriod", "periodTime"]) ||
+        formatTimePart(record.startTime ?? record.reserveStartDate ?? record.beginTime ?? record.resvStartTime ?? record.reserveBeginTime ?? record.startDate),
+    );
+
 const collectResourceRecords = (value: unknown): PlainRecord[] => {
-    const queue: unknown[] = [value];
+    type QueueItem = { value: unknown; context: PlainRecord };
+    const queue: QueueItem[] = [{ value, context: {} }];
     const visited = new Set<unknown>();
     const results: PlainRecord[] = [];
 
     while (queue.length > 0) {
-        const current = queue.shift();
+        const item = queue.shift()!;
+        const current = item.value;
         if (current === null || current === undefined || visited.has(current)) continue;
         visited.add(current);
 
         if (Array.isArray(current)) {
-            for (const item of current) {
-                queue.push(item);
+            for (const child of current) {
+                queue.push({ value: child, context: item.context });
             }
             continue;
         }
@@ -181,13 +264,34 @@ const collectResourceRecords = (value: unknown): PlainRecord[] => {
         const record = asRecord(current);
         if (!record) continue;
 
-        if (looksLikeResourceRecord(record)) {
-            results.push(record);
+        const context = { ...item.context };
+        const inheritedField = firstString(record, [
+            "fieldName",
+            "siteName",
+            "field",
+            "siteLabel",
+            "siteNo",
+            "siteNoName",
+            "propName",
+            "location",
+        ]);
+        const inheritedSiteId = firstString(record, ["siteUuid", "siteId", "siteNo", "resId"]);
+        if (inheritedField && !firstString(record, ["sceneName", "venueName"])) {
+            context.fieldName = inheritedField;
+        }
+        if (inheritedSiteId) {
+            context.resId = inheritedSiteId;
+            context.resHash = inheritedSiteId;
+        }
+
+        const merged = { ...context, ...record };
+        if (looksLikeResourceRecord(merged) && hasExplicitSlotTime(record) && buildTimeSession(merged) && firstString(merged, ["fieldName", "siteName", "field", "name", "siteLabel", "siteNo", "siteNoName", "propName", "location"])) {
+            results.push(merged);
         }
 
         for (const nestedValue of Object.values(record)) {
             if (Array.isArray(nestedValue) || asRecord(nestedValue)) {
-                queue.push(nestedValue);
+                queue.push({ value: nestedValue, context });
             }
         }
     }
@@ -203,27 +307,108 @@ const normalizeResourceRecord = (record: PlainRecord): SportsResource | null => 
         "name",
         "siteLabel",
         "siteNo",
+        "siteNoName",
+        "propName",
+        "location",
     ]) || "";
     const timeSession = buildTimeSession(record);
 
-    if (!fieldName && !timeSession) {
+    if (!fieldName || !timeSession) {
         return null;
     }
 
-    const canNetBook =
-        asBoolean(record.canNetBook ?? record.canBook ?? record.available ?? record.bookable) ??
-        !(record.bookId || record.reserveId || record.resvId || record.orderId);
+    const explicitBookable = asBoolean(firstValue(record, [
+        "canNetBook",
+        "canBook",
+        "available",
+        "bookable",
+        "canReserve",
+        "canResv",
+        "canReservation",
+        "reservable",
+        "resvAble",
+        "isAvailable",
+        "isCanReserve",
+        "enabled",
+    ]));
+    const explicitLocked = asBoolean(firstValue(record, [
+        "locked",
+        "lock",
+        "disabled",
+        "disable",
+        "unavailable",
+        "occupied",
+        "reserved",
+        "booked",
+        "hasResv",
+        "hasReserve",
+        "hasReservation",
+        "isReserved",
+        "isBooked",
+        "isOccupied",
+        "isLock",
+    ]));
+    const statusText = firstStatusText(record);
+    const statusSaysBooked = [
+        "已约",
+        "已预约",
+        "已占用",
+        "占用",
+        "不可预约",
+        "不可预订",
+        "已满",
+        "无余量",
+        "锁定",
+        "暂停",
+        "关闭",
+        "closed",
+        "disabled",
+        "booked",
+        "reserved",
+        "occupied",
+        "full",
+        "unavailable",
+    ].some((token) => statusText.includes(token));
+    const statusSaysBookable = [
+        "可预约",
+        "可预订",
+        "空闲",
+        "有余量",
+        "available",
+        "bookable",
+        "free",
+    ].some((token) => statusText.includes(token));
+    const bookingId = firstString(record, [
+        "bookId",
+        "reserveId",
+        "resvId",
+        "orderId",
+        "resvUuid",
+        "reserveUuid",
+        "bookingId",
+    ]);
+    const nestedReservation = [
+        record.resvInfo,
+        record.reserveInfo,
+        record.reservationInfo,
+        record.orderInfo,
+        record.currentReserve,
+    ].some((value) => Array.isArray(value) ? value.length > 0 : Boolean(asRecord(value)));
+    const locked = explicitLocked === true || statusSaysBooked || nestedReservation;
+    const canNetBook = explicitBookable !== undefined
+        ? explicitBookable && !locked && !bookingId
+        : statusSaysBookable && !locked && !bookingId;
 
     return {
         resId: firstString(record, ["resId", "siteUuid", "id", "uuid"]) || `${fieldName}-${timeSession}`,
         resHash: firstString(record, ["resHash", "hash", "siteUuid", "id", "uuid"]) || `${fieldName}-${timeSession}`,
-        bookId: firstString(record, ["bookId", "reserveId", "resvId", "orderId"]),
+        bookId: bookingId,
         timeSession,
         fieldName,
         overlaySize: asNumber(record.overlaySize ?? record.size) || 0,
         canNetBook,
         cost: asNumber(record.cost ?? record.price ?? record.amount ?? record.money),
-        locked: asBoolean(record.locked),
+        locked,
         userType: firstString(record, ["userType", "siteType"]),
         paymentStatus: asBoolean(record.paymentStatus ?? record.paid),
     } as SportsResource;
@@ -245,6 +430,80 @@ const extractResourcesFromApiData = (apiData: PlainRecord): SportsResource[] => 
     return Array.from(deduped.values());
 };
 
+const summarizeApiShape = (value: unknown, prefix = "data", depth = 0): string[] => {
+    if (depth > 2) return [];
+    const record = Array.isArray(value) ? asRecord(value[0]) : asRecord(value);
+    if (!record) return [];
+    const keys = Object.keys(record).slice(0, 24);
+    const lines = [`${prefix}: keys=${keys.join(",")}`];
+    for (const [key, nested] of Object.entries(record)) {
+        if (Array.isArray(nested) && nested.length > 0) {
+            lines.push(...summarizeApiShape(nested[0], `${prefix}.${key}[]`, depth + 1));
+        } else if (asRecord(nested)) {
+            lines.push(...summarizeApiShape(nested, `${prefix}.${key}`, depth + 1));
+        }
+    }
+    return lines;
+};
+
+const extractRecordList = (apiData: PlainRecord): PlainRecord[] => {
+    const candidates = [
+        apiData.data,
+        apiData.records,
+        apiData.list,
+        apiData.rows,
+    ];
+    for (const value of candidates) {
+        if (Array.isArray(value)) {
+            return value.map((item) => asRecord(item)).filter((item): item is PlainRecord => Boolean(item));
+        }
+    }
+    return [];
+};
+
+const formatReservationRange = (resvTime: PlainRecord | null): string => {
+    if (!resvTime) return "";
+    const start = firstString(resvTime, ["startTime", "beginTime", "reserveStartDate"]) || "";
+    const end = firstString(resvTime, ["endTime", "finishTime", "reserveEndDate"]) || "";
+    if (start && end) return `${start} - ${end}`;
+    return start || end;
+};
+
+const normalizeNewReservationRecord = (record: PlainRecord): SportsReservationRecord => {
+    const sites = Array.isArray(record.siteVoList) ? record.siteVoList : [];
+    const field = sites
+        .map((site) => asRecord(site))
+        .filter((site): site is PlainRecord => Boolean(site))
+        .map((site) => firstString(site, ["siteName", "propName", "location"]))
+        .filter((siteName): siteName is string => Boolean(siteName))
+        .join(", ");
+    const resvTime = asRecord(record.resvTime);
+    const amount = asNumber(record.amount ?? record.price ?? record.payAmount ?? record.totalAmount);
+    const createdAt = firstString(record, ["gmtCreate", "createTime", "createdAt"]);
+    const bookTimestamp = createdAt ? Date.parse(createdAt) : undefined;
+
+    return {
+        name: firstString(record, ["sceneName", "sceneEnName", "siteName"]) || "",
+        field,
+        time: formatReservationRange(resvTime),
+        price: amount === undefined ? "" : String(amount),
+        method: firstString(record, ["payStatus", "payWay", "resvStatus", "resvCheckStatus"]) || "",
+        bookTimestamp: Number.isFinite(bookTimestamp) ? bookTimestamp : undefined,
+        bookId: firstString(record, ["resvUuid", "uuid", "id", "orderId"]),
+        payId: firstString(record, ["payId", "paymentId", "orderId"]),
+    };
+};
+
+const getSportsReservationRecordsFromNewApi = async (): Promise<SportsReservationRecord[]> => {
+    const responseText = await sportsFetch(
+        `${SPORTS_FRONTEND_API_BASE}/reserve/reserveRecord`,
+        "POST",
+        JSON.stringify({pageNum: 1, pageSize: 50}),
+    );
+    const apiData = parseSportsApiResponse(responseText, "reserve/reserveRecord");
+    return extractRecordList(apiData).map(normalizeNewReservationRecord);
+};
+
 const extractPhone = (apiData: PlainRecord): string =>
     firstString(apiData, ["phone", "mobile", "contactPhone", "cellPhone"]) || "";
 
@@ -262,8 +521,7 @@ const normalizeVenueText = (value: string): string =>
         .toLowerCase()
         .replace(/[（）()]/g, "")
         .replace(/\s+/g, "")
-        .replace(/场$/g, "")
-        .replace(/馆$/g, "");
+        .replace(/[场馆]/g, "");
 
 const getVenueAliases = (gymId: string, itemId: string): string[] => {
     const venue = sportsIdInfoList.find((item) => item.gymId === gymId && item.itemId === itemId);
@@ -285,7 +543,12 @@ const getVenueAliases = (gymId: string, itemId: string): string[] => {
         aliases.add("气膜馆羽毛球");
     }
     if (itemId === "4037036") {
-        aliases.add("气膜馆乒乓球");
+        aliases.add("北体乒乓球");
+        aliases.add("北体乒乓球场");
+        aliases.add("北体兵乓球");
+        aliases.add("北体兵乓球场");
+        aliases.add("乒乓球");
+        aliases.add("兵乓球");
     }
     if (itemId === "4797898") {
         aliases.add("综体篮球");
@@ -451,7 +714,8 @@ const getSportsAvailabilityStatus = (
         };
     }
 
-    if (totalCount > 0 || resources.length > 0) {
+    const hasExplicitUnavailable = resources.some((resource) => resource.locked || resource.bookId);
+    if (hasExplicitUnavailable) {
         return {
             statusCode: "fully_booked",
             statusMessage: "场馆已有可识别场地记录，但当前没有可预约时段，可能已被占满。",
@@ -460,7 +724,9 @@ const getSportsAvailabilityStatus = (
 
     return {
         statusCode: "unknown",
-        statusMessage: "接口未返回可预约场地，暂时无法区分是未开放还是已约满。",
+        statusMessage: totalCount > 0 || resources.length > 0
+            ? "接口返回了场地记录，但未给出可预约状态，暂时无法确认是否可约。"
+            : "接口未返回可预约场地，暂时无法区分是未开放还是已约满。",
     };
 };
 
@@ -586,7 +852,20 @@ export const getSportsResources = async (
                     );
 
                     if (matchedScenes.length === 0) {
-                        throw new Error(`未找到与 ${aliases.join("/")} 对应的场景`);
+                        const availableScenes = scenes
+                            .map((scene) => firstString(scene, ["sceneName", "name"]) || firstString(scene, ["sceneUuid", "uuid"]))
+                            .filter((name): name is string => Boolean(name))
+                            .slice(0, 20)
+                            .join("、");
+                        console.log(`[Sports] 未匹配到 ${aliases.join("/")}，当前场景列表: ${availableScenes}`);
+                        return {
+                            count: 0,
+                            init: 0,
+                            phone: "",
+                            statusCode: "unknown",
+                            statusMessage: `新体育系统未返回与 ${aliases.join("/")} 对应的场景，无法确认是否开放或已约满。`,
+                            data: [],
+                        } as SportsResourcesInfo;
                     }
 
                     let totalCount = 0;
@@ -607,6 +886,9 @@ export const getSportsResources = async (
                             if (!deduped.has(key)) {
                                 deduped.set(key, resource);
                             }
+                        }
+                        if (resources.length === 0 && extractCount(apiData, resources) > 0) {
+                            console.log(`[Sports] reserve/current/page 返回 count=${extractCount(apiData, resources)} 但未解析出明确时段，结构: ${summarizeApiShape(apiData.data ?? apiData).join(" | ")}`);
                         }
                     }
 
@@ -750,6 +1032,14 @@ export const getSportsReservationRecords = async (
     "default",
     "5539ECF8CD815C7D3F5A8EE0A2D72441",
     async () => {
+        const jwtToken = (globalThis as any).__sportsJwtToken;
+        if (jwtToken) {
+            try {
+                return await getSportsReservationRecordsFromNewApi();
+            } catch (e: any) {
+                console.error(`[Sports] 新系统预约记录查询失败: ${e.message}`);
+            }
+        }
         const $ = await uFetch(SPORTS_UNPAID_URL).then(cheerio.load);
         const tables = $("table");
         if (tables.length === 0) {
@@ -858,7 +1148,7 @@ export const sportsIdInfoList: SportsIdInfo[] = [
         itemId: "4045681",
     },
     {
-        name: "气膜馆乒乓球场",
+        name: "北体乒乓球场",
         gymId: "3998000",
         itemId: "4037036",
     },

@@ -6,7 +6,7 @@ export const getAvailableSportsVenuesTool: AgentTool = {
         type: "function",
         function: {
             name: "get_available_sports_venues",
-            description: "获取所有可预约的体育场馆列表",
+            description: "仅列出系统支持查询的体育场馆名称，不表示这些场馆当前有余量。用户问某天某项目是否还有位置/空位时，必须调用 get_sports_resources。",
             parameters: {
                 type: "object",
                 properties: {},

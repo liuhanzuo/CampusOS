@@ -1,9 +1,11 @@
 import { InfoHelper } from "@thu-info/lib";
 import { getCalendarTool } from "./calendar.tool";
 import { rechargeCampusCardTool } from "./campus-card-recharge.tool";
+import { listCapabilitiesTool } from "./capabilities.tool";
 import { getCardInfoTool } from "./card-info.tool";
 import { getClassroomTool } from "./classroom.tool";
 import { getElectricityTool } from "./electricity.tool";
+import { extendedCampusTools } from "./extended-campus-tools.tool";
 import { getLibraryTool } from "./library.tool";
 import { getNewsTool } from "./news.tool";
 import { getReportTool } from "./report.tool";
@@ -12,8 +14,12 @@ import { openSportsBookingPageTool } from "./sports-booking-open.tool";
 import { getSportsResourcesTool } from "./sports-resources.tool";
 import { getAvailableSportsVenuesTool } from "./sports-venues.tool";
 import { AgentTool } from "./types";
+import { confirmPendingActionTool, listPendingActionsTool } from "./pending-actions.tool";
 
 const toolRegistry: AgentTool[] = [
+    listCapabilitiesTool,
+    listPendingActionsTool,
+    confirmPendingActionTool,
     getScheduleTool,
     getSportsResourcesTool,
     getReportTool,
@@ -26,6 +32,7 @@ const toolRegistry: AgentTool[] = [
     getAvailableSportsVenuesTool,
     openSportsBookingPageTool,
     rechargeCampusCardTool,
+    ...extendedCampusTools,
 ];
 
 export const tools = toolRegistry.map((tool) => tool.definition);
@@ -34,13 +41,14 @@ export async function executeTool(
     helper: InfoHelper,
     toolName: string,
     args: any = {},
+    sessionId?: string,
 ): Promise<string> {
     try {
         const tool = toolRegistry.find((item) => item.definition.function.name === toolName);
         if (!tool) {
             return JSON.stringify({ error: `未知工具: ${toolName}` });
         }
-        const result = await tool.run({ helper }, args);
+        const result = await tool.run({ helper, sessionId }, args);
         return JSON.stringify(result);
     } catch (e: any) {
         return JSON.stringify({ error: e.message || "工具执行失败" });

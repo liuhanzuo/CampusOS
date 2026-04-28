@@ -2,6 +2,7 @@ import { InfoHelper } from "@thu-info/lib";
 
 export interface ToolContext {
     helper: InfoHelper;
+    sessionId?: string;
 }
 
 export interface AgentTool {

@@ -56,6 +56,11 @@ export interface InteractiveBookingResult {
     currentUrl?: string;
 }
 
+export interface SportsAuthTokens {
+    token?: string;
+    refreshToken?: string;
+}
+
 export interface CaptchaDragPoint {
     x: number;
     y: number;
@@ -106,12 +111,12 @@ export class SportsSeleniumService {
     private appRoot = path.join(__dirname, '..', '..', '..');
     private cookieDir = path.join(this.appRoot, '.cookies');
     private cookieFile = path.join(this.cookieDir, 'sports-cookies.json');
-    private webVpnSportsBase = 'https://webvpn.tsinghua.edu.cn/https/77726476706e69737468656265737421e7e056d2342067426a1bc7b88b5c2d32e0ef2d0b7581aac05baf/venue/index.html';
+    private sportsBase = 'https://www.sports.tsinghua.edu.cn/venue/index.html';
 
     // 体育场馆列表
     private venues: SportsVenue[] = [
         { name: "气膜馆羽毛球场", gymId: "3998000", itemId: "4045681" },
-        { name: "气膜馆乒乓球场", gymId: "3998000", itemId: "4037036" },
+        { name: "北体乒乓球场", gymId: "3998000", itemId: "4037036" },
         { name: "综体篮球场", gymId: "4797914", itemId: "4797898" },
         { name: "综体羽毛球场", gymId: "4797914", itemId: "4797899" },
         { name: "西体羽毛球场", gymId: "4836273", itemId: "4836196" },
@@ -764,7 +769,36 @@ export class SportsSeleniumService {
         );
     }
 
-    async openInteractiveBookingPage(venueName: string, date?: string): Promise<InteractiveBookingResult> {
+    private async injectSportsTokens(tokens?: SportsAuthTokens): Promise<boolean> {
+        if (!this.driver || !tokens?.token) {
+            return false;
+        }
+
+        await this.driver.get(this.sportsBase);
+        await this.driver.sleep(500);
+        await this.driver.executeScript(
+            (token: string, refreshToken?: string) => {
+                window.localStorage.setItem("token", token);
+                window.localStorage.setItem("headers", JSON.stringify({ token }));
+                if (refreshToken) {
+                    window.localStorage.setItem("refreshToken", refreshToken);
+                }
+            },
+            tokens.token,
+            tokens.refreshToken,
+        );
+        this.log("已向体育预约页面注入已登录 token");
+        return true;
+    }
+
+    private buildAuthenticatedSportsUrl(sceneUuid: string, tokens?: SportsAuthTokens): string {
+        const authParams = tokens?.token
+            ? `?token=${encodeURIComponent(tokens.token)}${tokens.refreshToken ? `&refreshToken=${encodeURIComponent(tokens.refreshToken)}` : ""}`
+            : "";
+        return `${this.sportsBase}${authParams}#/reserveList?uuid=${sceneUuid}`;
+    }
+
+    async openInteractiveBookingPage(venueName: string, date?: string, tokens?: SportsAuthTokens): Promise<InteractiveBookingResult> {
         const venue = this.findInteractiveVenue(venueName);
         if (!venue) {
             return {
@@ -777,7 +811,8 @@ export class SportsSeleniumService {
         }
 
         const driver = await this.initDriver(false);
-        const url = `${this.webVpnSportsBase}#/reserveList?uuid=${venue.sceneUuid}`;
+        await this.injectSportsTokens(tokens);
+        const url = this.buildAuthenticatedSportsUrl(venue.sceneUuid, tokens);
 
         this.log(`打开真实预约页: ${venue.name}${date ? `, 日期: ${date}` : ""}`);
         await driver.get(url);

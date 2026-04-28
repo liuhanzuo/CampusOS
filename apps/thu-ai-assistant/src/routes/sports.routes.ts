@@ -111,8 +111,35 @@ sportsRouter.post("/api/sports/open-booking", async (req, res) => {
         return res.status(400).json({ error: "请提供场馆名称" });
     }
 
+    const helper = sessionManager.getHelper(sessionId);
+    if (!helper) {
+        return res.status(401).json({ error: "会话已过期，请重新登录" });
+    }
+
     try {
-        const result = await sportsSeleniumService.openInteractiveBookingPage(venueName, date);
+        const normalized = String(venueName).trim();
+        const venue = sportsIdInfoList.find((item) =>
+            item.name.includes(normalized) ||
+            normalized.includes(item.name) ||
+            (normalized.includes("羽毛球") && item.name.includes("羽毛球")) ||
+            (normalized.includes("篮球") && item.name.includes("篮球")) ||
+            (normalized.includes("乒乓球") && item.name.includes("乒乓球")) ||
+            (normalized.includes("台球") && item.name.includes("台球")) ||
+            (normalized.includes("网球") && item.name.includes("网球"))
+        );
+        if (venue) {
+            await helper.getSportsResources(
+                venue.gymId,
+                venue.itemId,
+                date || new Date().toISOString().slice(0, 10),
+            ).catch((e: any) => {
+                console.log(`[Sports] API打开预约页前获取 token/余量失败，继续尝试打开页面: ${e.message}`);
+            });
+        }
+        const result = await sportsSeleniumService.openInteractiveBookingPage(venueName, date, {
+            token: (globalThis as any).__sportsJwtToken,
+            refreshToken: (globalThis as any).__sportsRefreshToken,
+        });
         res.json(result);
     } catch (e: any) {
         console.error("[API] 打开体育预约页失败:", e.message);

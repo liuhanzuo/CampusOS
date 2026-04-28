@@ -8,6 +8,8 @@
 	],
 	"scripts": {
 		"android": "yarn workspace @thu-info/app android",
+		"agent:android": "npm run android --workspace apps/thu-agent-app",
+		"agent:start": "npm run start --workspace apps/thu-agent-app",
 		"ios": "yarn workspace @thu-info/app ios",
 		"start": "yarn workspace @thu-info/app start",
 		"build": "yarn workspace @thu-info/lib build",

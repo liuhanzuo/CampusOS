@@ -7,7 +7,7 @@ export const getSportsResourcesTool: AgentTool = {
         type: "function",
         function: {
             name: "get_sports_resources",
-            description: "查询体育场馆的预约情况，包括羽毛球场、篮球场、乒乓球场、台球、网球场等。可以查看某个日期的场地空闲情况。",
+            description: "查询体育场馆某天是否还有可预约余量/空位，并返回可预约场地、时段和剩余记录数。用户问“有没有空位”“还有没有位置”“余量”时必须调用本工具。",
             parameters: {
                 type: "object",
                 properties: {

@@ -29,9 +29,12 @@ const accountBaseInfo = {
 
 const fetchWithParse = async (url: string, jsonStruct: any = {}) => {
     const response = await uFetch(url, JSON.stringify(jsonStruct) as any, undefined, undefined, true, CONTENT_TYPE_JSON);
-    const {data, success, resultData} = JSON.parse(response);
+    const {data, success, resultData, message} = JSON.parse(response);
     if (success) {
         return resultData;
+    }
+    if (typeof data !== "string") {
+        throw new Error(message || resultData?.message || "Campus card API request failed.");
     }
     const decrypt = AES.decrypt(data.substring(16), enc.Utf8.parse(data.substring(0, 16)), {mode: mode.ECB, padding: pad.Pkcs7});
     const decString = enc.Utf8.stringify(decrypt).toString();

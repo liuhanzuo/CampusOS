@@ -43,6 +43,24 @@ const webvpnUrlToLbAuth = (webvpnUrl: string): string | null => {
 
 export const cookies: { [key: string]: string } = {};
 
+const getProxyAgent = (url: string): any => {
+    if (global.FileReader !== undefined || !url.startsWith("https://")) {
+        return undefined;
+    }
+    const proxyUrl = process.env.https_proxy || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.HTTP_PROXY;
+    if (!proxyUrl) {
+        return undefined;
+    }
+    try {
+        // Loaded lazily so React Native/browser builds do not bundle a Node-only agent.
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { HttpsProxyAgent } = require("https-proxy-agent");
+        return new HttpsProxyAgent(proxyUrl);
+    } catch {
+        return undefined;
+    }
+};
+
 const isRedirectStatus = (status: number) =>
     status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
 
@@ -163,9 +181,11 @@ export const uFetch = async (
     const timeoutEvent = setTimeout(() => {
         controller.abort();
     }, timeout);
+    const proxyAgent = getProxyAgent(url);
     const defaultInit = {
         headers: headers,
         signal: controller.signal,
+        ...(proxyAgent ? {agent: proxyAgent} : {}),
     };
 
     // Switch method to `POST` if post-body is provided
@@ -212,6 +232,7 @@ export const uFetch = async (
                             headers: buildHeaders(requestContentType, extraHeaders),
                             signal: controller.signal,
                             redirect: "manual" as RequestRedirect,
+                            ...(getProxyAgent(lbAuthUrl) ? {agent: getProxyAgent(lbAuthUrl)} : {}),
                         };
                         // @ts-ignore
                         let lbResponse = await fetch(lbAuthUrl, lbInit);
@@ -230,6 +251,7 @@ export const uFetch = async (
                                 headers: buildHeaders(requestContentType, extraHeaders),
                                 signal: controller.signal,
                                 redirect: "manual" as RequestRedirect,
+                                ...(getProxyAgent(lbLocation) ? {agent: getProxyAgent(lbLocation)} : {}),
                             };
                             // @ts-ignore
                             lbResponse = await fetch(lbLocation, lbRedirectInit);
@@ -242,6 +264,7 @@ export const uFetch = async (
                             ...init,
                             headers: buildHeaders(requestContentType, extraHeaders),
                             redirect: "manual" as RequestRedirect,
+                            ...(getProxyAgent(url) ? {agent: getProxyAgent(url)} : {}),
                         };
                         // @ts-ignore
                         response = await fetch(url, retryInit);
@@ -257,6 +280,7 @@ export const uFetch = async (
                     headers: buildHeaders(requestContentType, extraHeaders),
                     signal: controller.signal,
                     redirect: "manual" as RequestRedirect,
+                    ...(getProxyAgent(location) ? {agent: getProxyAgent(location)} : {}),
                 };
                 // @ts-ignore
                 response = await fetch(location, redirectInit);

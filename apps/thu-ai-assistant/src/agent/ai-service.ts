@@ -10,7 +10,23 @@ import { executeTool } from "./tools";
 export async function chat(
     helper: InfoHelper,
     messages: ChatMessage[],
+    sessionId?: string,
 ): Promise<ChatResult> {
+    const actionMarkers = new Set<string>();
+
+    const collectActionMarkers = (rawResult: string) => {
+        try {
+            const result = JSON.parse(rawResult);
+            for (const key of ["paymentMarker", "openUrlMarker", "captchaPanelMarker"]) {
+                if (typeof result[key] === "string" && result[key].trim()) {
+                    actionMarkers.add(result[key].trim());
+                }
+            }
+        } catch {
+            // Tool results should be JSON, but marker collection is best-effort.
+        }
+    };
+
     // 构建完整的消息列表
     const fullMessages: ChatMessage[] = [
         { role: "system", content: buildSystemPrompt() },
@@ -47,7 +63,8 @@ export async function chat(
 
             console.log(`[AI] 调用工具: ${toolCall.function.name}`, JSON.stringify(args));
             const toolStart = Date.now();
-            const result = await executeTool(helper, toolCall.function.name, args);
+            const result = await executeTool(helper, toolCall.function.name, args, sessionId);
+            collectActionMarkers(result);
             console.log(`[AI] 工具 ${toolCall.function.name} 耗时: ${Date.now() - toolStart}ms, 结果长度: ${result.length}`);
             
             // 打印结果摘要（前200字符）
@@ -68,7 +85,12 @@ export async function chat(
         assistantMessage = response.choices[0].message;
     }
 
-    const reply = assistantMessage.content || "抱歉，我暂时无法回答这个问题。";
+    let reply = assistantMessage.content || "抱歉，我暂时无法回答这个问题。";
+    for (const marker of actionMarkers) {
+        if (!reply.includes(marker)) {
+            reply += `\n\n${marker}`;
+        }
+    }
     console.log(`[AI] 最终回复长度: ${reply.length}, 工具调用轮次: ${iterations}`);
 
     // 更新消息历史（不包含 system prompt）

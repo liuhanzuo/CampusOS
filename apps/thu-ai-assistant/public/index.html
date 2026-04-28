@@ -3,1425 +3,1589 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>清华AI助手</title>
-    <!-- QR码生成库 - 多CDN备用 -->
+    <title>Campus Agent</title>
+    <link rel="icon" href="data:,">
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
     <script>
-        // 检测QRCode是否加载成功，如果失败则尝试备用CDN
-        if (typeof QRCode === 'undefined') {
+        if (typeof QRCode === "undefined") {
             document.write('<script src="https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js"><\/script>');
         }
     </script>
-    <script>
-        if (typeof QRCode === 'undefined') {
-            document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"><\/script>');
-        }
-    </script>
     <style>
+        :root {
+            --bg: #eef2f1;
+            --surface: #ffffff;
+            --surface-soft: #f8faf9;
+            --ink: #17201e;
+            --muted: #60706c;
+            --line: #d8dedc;
+            --primary: #145c56;
+            --primary-dark: #0f4540;
+            --blue: #233a66;
+            --green-soft: #e9f5ef;
+            --blue-soft: #eaf1ff;
+            --amber-soft: #fff6de;
+            --red-soft: #fff0ed;
+            --bad: #bc392d;
+            --warn: #b98200;
+            --shadow: 0 18px 46px rgba(27, 43, 39, 0.12);
+        }
+
         * {
-            margin: 0;
-            padding: 0;
             box-sizing: border-box;
         }
 
-        :root {
-            --primary: #660874;
-            --primary-light: #8b2fa0;
-            --primary-dark: #4a0654;
-            --bg: #f5f5f5;
-            --card-bg: #ffffff;
-            --text: #333333;
-            --text-light: #666666;
-            --border: #e0e0e0;
-            --success: #4caf50;
-            --error: #f44336;
-            --user-bubble: #660874;
-            --ai-bubble: #ffffff;
-        }
-
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            height: 100vh;
+            overflow: hidden;
             background: var(--bg);
-            color: var(--text);
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
+            color: var(--ink);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
         }
 
-        /* ==================== 登录页面 ==================== */
-        #login-page {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background: linear-gradient(135deg, #660874 0%, #4a0654 50%, #2d0033 100%);
+        button, input, textarea {
+            font: inherit;
         }
 
-        .login-container {
-            background: white;
-            border-radius: 20px;
-            padding: 40px;
-            width: 400px;
-            max-width: 90vw;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-        }
-
-        .login-header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-
-        .login-header h1 {
-            font-size: 28px;
-            color: var(--primary);
-            margin-bottom: 8px;
-        }
-
-        .login-header p {
-            color: var(--text-light);
-            font-size: 14px;
-        }
-
-        .login-logo {
-            font-size: 48px;
-            margin-bottom: 12px;
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 6px;
-            font-size: 14px;
-            color: var(--text-light);
-            font-weight: 500;
-        }
-
-        .form-group input {
-            width: 100%;
-            padding: 12px 16px;
-            border: 2px solid var(--border);
-            border-radius: 10px;
-            font-size: 16px;
-            transition: border-color 0.3s;
-            outline: none;
-        }
-
-        .form-group input:focus {
-            border-color: var(--primary);
-        }
-
-        .btn {
-            width: 100%;
-            padding: 14px;
-            border: none;
-            border-radius: 10px;
-            font-size: 16px;
-            font-weight: 600;
+        button {
             cursor: pointer;
-            transition: all 0.3s;
         }
 
-        .btn-primary {
-            background: var(--primary);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            background: var(--primary-light);
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(102, 8, 116, 0.4);
-        }
-
-        .btn-primary:disabled {
-            background: #ccc;
+        button:disabled {
             cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
+            opacity: 0.55;
         }
 
-        .btn-secondary {
-            background: #f0f0f0;
-            color: var(--text);
-            margin-top: 10px;
-        }
-
-        .btn-secondary:hover {
-            background: #e0e0e0;
-        }
-
-        .error-msg {
-            color: var(--error);
-            font-size: 14px;
-            margin-top: 10px;
-            text-align: center;
-            display: none;
-        }
-
-        .loading-spinner {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 0.8s linear infinite;
-            margin-right: 8px;
-            vertical-align: middle;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        /* ==================== 2FA 页面 ==================== */
-        #twofa-section {
-            display: none;
-        }
-
-        .twofa-methods {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            margin: 20px 0;
-        }
-
-        .twofa-method-btn {
-            padding: 14px 20px;
-            border: 2px solid var(--border);
-            border-radius: 10px;
-            background: white;
-            cursor: pointer;
-            font-size: 15px;
-            text-align: left;
-            transition: all 0.3s;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .twofa-method-btn:hover {
-            border-color: var(--primary);
-            background: #f9f0fb;
-        }
-
-        .twofa-method-btn .icon {
-            font-size: 24px;
-        }
-
-        /* ==================== 聊天页面 ==================== */
-        #chat-page {
-            display: none;
-            flex-direction: column;
+        .app {
             height: 100vh;
+            display: grid;
+            grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
         }
 
-        .chat-header {
-            background: var(--primary);
-            color: white;
-            padding: 16px 20px;
+        .sidebar {
+            padding: 24px;
+            border-right: 1px solid var(--line);
+            overflow-y: auto;
+        }
+
+        .brand {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            gap: 16px;
+            align-items: flex-start;
+            margin-bottom: 22px;
         }
 
-        .chat-header h2 {
-            font-size: 18px;
+        .kicker {
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            margin: 4px 0 0;
+            font-size: 34px;
+            line-height: 1.05;
+            letter-spacing: 0;
+        }
+
+        .status-pill {
+            min-height: 34px;
+            padding: 0 12px;
+            border-radius: 17px;
+            border: 1px solid var(--line);
+            background: var(--surface);
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 800;
+            white-space: nowrap;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #8a9692;
+        }
+
+        .status-success .dot { background: var(--primary); }
+        .status-pending .dot { background: #315fb8; }
+        .status-two_factor .dot { background: var(--warn); }
+        .status-error .dot { background: var(--bad); }
+
+        .panel {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 14px;
+        }
+
+        .panel-title {
+            margin: 0 0 12px;
+            font-size: 15px;
+            font-weight: 900;
+        }
+
+        .field-stack {
+            display: grid;
+            gap: 10px;
+        }
+
+        .field-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 8px;
+        }
+
+        .remember-row {
             display: flex;
             align-items: center;
             gap: 8px;
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 800;
+        }
+
+        .remember-row input {
+            width: 16px;
+            min-height: 16px;
+            accent-color: var(--primary);
+        }
+
+        input, textarea {
+            width: 100%;
+            border: 1px solid #cbd5d2;
+            border-radius: 7px;
+            background: var(--surface-soft);
+            color: var(--ink);
+            outline: none;
+        }
+
+        input {
+            min-height: 42px;
+            padding: 0 12px;
+        }
+
+        input:focus, textarea:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(20, 92, 86, 0.12);
+        }
+
+        .btn {
+            min-height: 42px;
+            border: 0;
+            border-radius: 7px;
+            padding: 0 14px;
+            font-weight: 900;
+            color: white;
+            background: var(--primary);
+        }
+
+        .btn:hover {
+            background: var(--primary-dark);
+        }
+
+        .btn.secondary {
+            background: var(--blue);
+        }
+
+        .btn.ghost {
+            background: #edf0ef;
+            color: #3d4845;
+        }
+
+        .twofa-methods {
+            display: none;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .twofa-code-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 8px;
+        }
+
+        .cap-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .cap-card {
+            min-height: 68px;
+            border-radius: 8px;
+            border: 1px solid var(--line);
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            font-weight: 900;
+            background: white;
+        }
+
+        .cap-card:nth-child(1) { background: var(--blue-soft); border-color: #b3c4e8; }
+        .cap-card:nth-child(2) { background: var(--green-soft); border-color: #a9cab8; }
+        .cap-card:nth-child(3) { background: var(--amber-soft); border-color: #e5ca7d; }
+        .cap-card:nth-child(4) { background: var(--red-soft); border-color: #dfa9a0; }
+
+        .quick-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .chip {
+            min-height: 34px;
+            border: 1px solid var(--line);
+            border-radius: 17px;
+            background: white;
+            color: #33413d;
+            padding: 0 12px;
+            font-size: 13px;
+            font-weight: 800;
+        }
+
+        .main {
+            min-width: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background: #fbfcfb;
+        }
+
+        .main-header {
+            height: 64px;
+            border-bottom: 1px solid var(--line);
+            background: white;
+            padding: 0 22px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .main-title {
+            font-size: 16px;
+            font-weight: 900;
         }
 
         .header-actions {
             display: flex;
-            gap: 10px;
+            gap: 8px;
         }
 
-        .header-btn {
-            background: rgba(255, 255, 255, 0.2);
-            border: none;
-            color: white;
-            padding: 8px 16px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 13px;
-            transition: background 0.3s;
-        }
-
-        .header-btn:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
-
-        .chat-messages {
+        .messages {
             flex: 1;
             overflow-y: auto;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
+            padding: 18px 22px;
         }
 
         .message {
             display: flex;
-            gap: 12px;
-            max-width: 85%;
-            animation: fadeIn 0.3s ease;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+            margin: 10px 0;
         }
 
         .message.user {
-            align-self: flex-end;
-            flex-direction: row-reverse;
+            justify-content: flex-end;
         }
 
-        .message-avatar {
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 18px;
-            flex-shrink: 0;
-        }
-
-        .message.ai .message-avatar {
-            background: var(--primary);
+        .user-bubble {
+            max-width: min(760px, 72%);
+            background: var(--blue);
             color: white;
-        }
-
-        .message.user .message-avatar {
-            background: #e0e0e0;
-        }
-
-        .message-bubble {
-            padding: 12px 16px;
-            border-radius: 16px;
-            line-height: 1.6;
-            font-size: 15px;
-            word-break: break-word;
-        }
-
-        .message.ai .message-bubble {
-            background: var(--ai-bubble);
-            color: var(--text);
-            border: 1px solid var(--border);
-            border-bottom-left-radius: 4px;
-        }
-
-        .message.user .message-bubble {
-            background: var(--user-bubble);
-            color: white;
-            border-bottom-right-radius: 4px;
-        }
-
-        .message-bubble p {
-            margin-bottom: 8px;
-        }
-
-        .message-bubble p:last-child {
-            margin-bottom: 0;
-        }
-
-        .message-bubble ul, .message-bubble ol {
-            margin-left: 20px;
-            margin-bottom: 8px;
-        }
-
-        .message-bubble code {
-            background: rgba(0, 0, 0, 0.06);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 13px;
-        }
-
-        .message-bubble strong {
-            font-weight: 600;
-        }
-
-        /* 支付二维码卡片 */
-        .pay-qr-card {
-            background: linear-gradient(135deg, #f0fdf4, #dcfce7);
-            border: 1px solid #86efac;
-            border-radius: 12px;
-            padding: 20px;
-            margin: 12px 0;
-            text-align: center;
-        }
-
-        .pay-qr-card h4 {
-            color: #166534;
-            margin-bottom: 12px;
-            font-size: 16px;
-        }
-
-        .pay-qr-card canvas {
-            border: 4px solid white;
+            padding: 11px 14px;
             border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        }
-
-        .pay-qr-card .pay-tip {
-            color: #15803d;
-            font-size: 12px;
-            margin-top: 10px;
-        }
-
-        .pay-qr-card .pay-amount {
-            color: #166534;
-            font-size: 24px;
+            line-height: 1.55;
             font-weight: 700;
-            margin: 8px 0;
         }
 
-        .pay-qr-card .pay-link-btn {
-            display: inline-block;
-            margin-top: 12px;
-            padding: 10px 24px;
-            background: #16a34a;
-            color: white;
+        .system-event {
+            max-width: 760px;
+            margin: 10px auto;
+            background: #e8f1ee;
+            color: #31504a;
+            border-radius: 18px;
+            padding: 8px 12px;
+            font-size: 13px;
+            font-weight: 800;
+        }
+
+        .assistant-card {
+            width: min(840px, 92%);
+            background: white;
+            border: 1px solid #dfe6e3;
             border-radius: 8px;
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: 600;
-            transition: all 0.3s;
-            cursor: pointer;
-            border: none;
-        }
-
-        .pay-qr-card .pay-link-btn:hover {
-            background: #15803d;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(22, 163, 74, 0.4);
-        }
-
-        /* 体育预约验证码卡片 */
-        .sports-captcha-card {
-            background: #f8fafc;
-            border: 1px solid #cbd5e1;
-            border-radius: 12px;
             padding: 16px;
-            margin: 12px 0;
+            box-shadow: 0 6px 18px rgba(37, 56, 51, 0.06);
         }
 
-        .sports-captcha-card h4 {
-            color: #334155;
-            font-size: 16px;
-            margin-bottom: 8px;
+        .assistant-card h3 {
+            margin: 0 0 10px;
+            font-size: 18px;
+            line-height: 1.25;
         }
 
-        .sports-captcha-card p {
-            color: #64748b;
+        .assistant-card p {
+            margin: 0 0 10px;
+            line-height: 1.7;
+        }
+
+        .assistant-card ul, .assistant-card ol {
+            margin: 6px 0 10px 22px;
+            padding: 0;
+            line-height: 1.75;
+        }
+
+        .assistant-card code {
+            padding: 2px 6px;
+            border-radius: 5px;
+            background: #fff2d4;
+            color: #7b3b00;
             font-size: 13px;
-            margin-bottom: 10px;
         }
 
-        .sports-captcha-btn {
-            padding: 10px 18px;
-            background: var(--primary);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-        }
-
-        .sports-captcha-btn.secondary {
-            background: #f1f5f9;
-            color: #475569;
-        }
-
-        .sports-captcha-btn:disabled {
-            background: #cbd5e1;
-            cursor: not-allowed;
-        }
-
-        /* 支付弹窗 */
-        .pay-modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.5);
+        .action-row {
             display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-            animation: fadeIn 0.2s ease;
-        }
-
-        .pay-modal {
-            background: white;
-            border-radius: 16px;
-            padding: 32px;
-            max-width: 400px;
-            width: 90%;
-            text-align: center;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            animation: slideUp 0.3s ease;
-        }
-
-        @keyframes slideUp {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .pay-modal h3 {
-            color: #166534;
-            margin-bottom: 8px;
-            font-size: 20px;
-        }
-
-        .pay-modal .pay-modal-amount {
-            color: #16a34a;
-            font-size: 32px;
-            font-weight: 700;
-            margin: 12px 0;
-        }
-
-        .pay-modal .pay-modal-qr {
-            margin: 16px 0;
-        }
-
-        .pay-modal .pay-modal-qr canvas {
-            border: 4px solid #f0fdf4;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        }
-
-        .pay-modal .pay-modal-actions {
-            display: flex;
-            flex-direction: column;
+            flex-wrap: wrap;
             gap: 10px;
-            margin-top: 16px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #edf0ef;
         }
 
-        .pay-modal .pay-modal-close {
-            padding: 10px 24px;
-            background: #f3f4f6;
-            color: #6b7280;
-            border: none;
-            border-radius: 10px;
-            font-size: 14px;
-            cursor: pointer;
-            transition: all 0.3s;
+        .action-card {
+            min-width: 220px;
+            border-radius: 8px;
+            border: 1px solid var(--line);
+            background: #f8faf9;
+            padding: 12px;
         }
 
-        .pay-modal .pay-modal-close:hover {
-            background: #e5e7eb;
+        .action-card strong {
+            display: block;
+            margin-bottom: 4px;
         }
 
-        .sports-captcha-modal {
+        .action-card p {
+            color: var(--muted);
+            font-size: 13px;
+            margin: 0 0 10px;
+        }
+
+        .composer {
+            border-top: 1px solid var(--line);
             background: white;
-            border-radius: 16px;
-            padding: 20px;
-            width: min(1100px, 94vw);
-            max-height: 90vh;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            animation: slideUp 0.3s ease;
+            padding: 14px 22px;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 10px;
+            align-items: end;
         }
 
-        .sports-captcha-header {
+        textarea {
+            min-height: 46px;
+            max-height: 140px;
+            resize: none;
+            padding: 12px;
+            line-height: 1.45;
+        }
+
+        .send {
+            min-width: 74px;
+            min-height: 46px;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            background: rgba(10, 18, 16, 0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 22px;
+        }
+
+        .modal {
+            width: min(460px, 94vw);
+            max-height: 92vh;
+            overflow: auto;
+            border-radius: 10px;
+            background: white;
+            box-shadow: var(--shadow);
+            padding: 22px;
+        }
+
+        .modal.large {
+            width: min(1120px, 96vw);
+        }
+
+        .modal-head {
             display: flex;
             justify-content: space-between;
             align-items: center;
             gap: 12px;
+            margin-bottom: 14px;
         }
 
-        .sports-captcha-header h3 {
-            color: #334155;
-            font-size: 18px;
+        .modal h2 {
+            margin: 0;
+            font-size: 20px;
         }
 
-        .sports-captcha-status {
-            color: #64748b;
-            font-size: 13px;
-            min-height: 18px;
+        .qr-box {
+            display: grid;
+            place-items: center;
+            padding: 18px;
+            background: #f7fbf9;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            margin: 14px 0;
         }
 
-        .sports-captcha-stage {
-            background: #0f172a;
-            border-radius: 10px;
-            overflow: auto;
+        .qr-box canvas, .qr-box img {
+            width: 280px;
+            height: 280px;
+        }
+
+        .url-box {
+            word-break: break-all;
+            background: #f3f6f5;
+            border-radius: 7px;
+            padding: 10px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .captcha-stage {
             max-height: 68vh;
+            overflow: auto;
+            background: #0f172a;
+            border-radius: 8px;
             text-align: center;
             touch-action: none;
         }
 
-        .sports-captcha-stage img {
-            display: block;
+        .captcha-stage img {
             max-width: 100%;
             height: auto;
+            display: block;
             margin: 0 auto;
             cursor: crosshair;
             user-select: none;
             -webkit-user-drag: none;
         }
 
-        .sports-captcha-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 10px;
-            flex-wrap: wrap;
+        .toast {
+            position: fixed;
+            left: 50%;
+            bottom: 24px;
+            transform: translateX(-50%);
+            z-index: 1200;
+            display: none;
+            max-width: min(760px, 92vw);
+            border-radius: 20px;
+            padding: 10px 14px;
+            background: #17201e;
+            color: white;
+            font-size: 13px;
+            font-weight: 800;
         }
 
-        .typing-indicator {
-            display: flex;
-            gap: 4px;
-            padding: 8px 0;
+        .typing {
+            display: inline-flex;
+            gap: 5px;
         }
 
-        .typing-indicator span {
+        .typing span {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #8a9692;
+            animation: bounce 1.1s infinite;
+        }
+
+        .typing span:nth-child(2) { animation-delay: 0.15s; }
+        .typing span:nth-child(3) { animation-delay: 0.3s; }
+
+        @keyframes bounce {
+            0%, 70%, 100% { transform: translateY(0); opacity: 0.45; }
+            35% { transform: translateY(-6px); opacity: 1; }
+        }
+
+        .app {
+            background:
+                linear-gradient(180deg, rgba(255,255,255,0.74), rgba(255,255,255,0)),
+                var(--bg);
+        }
+
+        .sidebar {
+            background: rgba(255, 255, 255, 0.72);
+        }
+
+        .brand h1 {
+            font-size: 32px;
+        }
+
+        .panel {
+            box-shadow: 0 10px 24px rgba(31, 48, 44, 0.06);
+        }
+
+        .panel-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .panel-title::before {
+            content: "";
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            background: #999;
-            animation: typing 1.4s infinite;
-        }
-
-        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
-        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
-
-        @keyframes typing {
-            0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
-            30% { transform: translateY(-8px); opacity: 1; }
-        }
-
-        .chat-input-area {
-            padding: 16px 20px;
-            background: white;
-            border-top: 1px solid var(--border);
-            display: flex;
-            gap: 12px;
-            align-items: flex-end;
-        }
-
-        .chat-input-area textarea {
-            flex: 1;
-            padding: 12px 16px;
-            border: 2px solid var(--border);
-            border-radius: 12px;
-            font-size: 15px;
-            resize: none;
-            outline: none;
-            max-height: 120px;
-            min-height: 44px;
-            font-family: inherit;
-            line-height: 1.4;
-            transition: border-color 0.3s;
-        }
-
-        .chat-input-area textarea:focus {
-            border-color: var(--primary);
-        }
-
-        .send-btn {
-            width: 44px;
-            height: 44px;
-            border: none;
-            border-radius: 50%;
             background: var(--primary);
-            color: white;
-            font-size: 20px;
-            cursor: pointer;
-            transition: all 0.3s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
         }
 
-        .send-btn:hover {
-            background: var(--primary-light);
-            transform: scale(1.05);
+        .btn {
+            transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
         }
 
-        .send-btn:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-            transform: none;
+        .btn:not(:disabled):hover {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 18px rgba(20, 92, 86, 0.16);
         }
 
-        /* 快捷操作 */
-        .quick-actions {
-            padding: 12px 20px;
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
-            background: white;
-            border-top: 1px solid var(--border);
+        .cap-card, .chip {
+            transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
         }
 
-        .quick-action-btn {
-            padding: 8px 16px;
-            border: 1px solid var(--primary);
-            border-radius: 20px;
-            background: white;
-            color: var(--primary);
-            font-size: 13px;
-            cursor: pointer;
-            transition: all 0.3s;
-            white-space: nowrap;
+        .cap-card:hover, .chip:hover {
+            transform: translateY(-1px);
+            border-color: rgba(20, 92, 86, 0.35);
+            box-shadow: 0 8px 18px rgba(31, 48, 44, 0.08);
         }
 
-        .quick-action-btn:hover {
-            background: var(--primary);
-            color: white;
+        .main {
+            background:
+                linear-gradient(180deg, #ffffff 0, #fbfcfb 84px, #f7faf8 100%);
         }
 
-        /* 欢迎消息 */
-        .welcome-card {
-            background: linear-gradient(135deg, #f9f0fb, #f0e6f6);
-            border-radius: 16px;
-            padding: 24px;
-            margin-bottom: 8px;
-            border: 1px solid #e8d5f0;
+        .main-header {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            backdrop-filter: blur(12px);
+            background: rgba(255, 255, 255, 0.86);
         }
 
-        .welcome-card h3 {
-            color: var(--primary);
-            margin-bottom: 12px;
-            font-size: 18px;
+        .messages {
+            padding: 22px;
         }
 
-        .welcome-card p {
-            color: var(--text-light);
-            font-size: 14px;
-            line-height: 1.6;
+        .message {
+            gap: 10px;
         }
 
-        .feature-grid {
+        .message.assistant::before {
+            content: "AI";
+            flex: 0 0 30px;
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
-            margin-top: 16px;
+            place-items: center;
+            background: #dff2ec;
+            color: var(--primary);
+            font-size: 11px;
+            font-weight: 900;
+            margin-top: 2px;
         }
 
-        .feature-item {
-            text-align: center;
-            padding: 12px 8px;
-            background: white;
-            border-radius: 10px;
+        .message.user::after {
+            content: "你";
+            flex: 0 0 30px;
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            display: grid;
+            place-items: center;
+            background: #e8eefc;
+            color: var(--blue);
             font-size: 12px;
-            color: var(--text-light);
-            cursor: pointer;
-            transition: all 0.3s;
+            font-weight: 900;
+            margin-top: 2px;
         }
 
-        .feature-item:hover {
-            background: var(--primary);
-            color: white;
-            transform: translateY(-2px);
+        .user-bubble {
+            border-radius: 8px 2px 8px 8px;
+            box-shadow: 0 10px 22px rgba(35, 58, 102, 0.16);
         }
 
-        .feature-item .emoji {
-            font-size: 24px;
+        .assistant-card {
+            width: min(900px, calc(100% - 42px));
+            padding: 0;
+            overflow: hidden;
+        }
+
+        .assistant-body {
+            padding: 16px;
+        }
+
+        .assistant-card h2,
+        .assistant-card h3 {
+            margin: 0 0 10px;
+            color: #12211d;
+            line-height: 1.25;
+        }
+
+        .assistant-card h2 {
+            font-size: 19px;
+        }
+
+        .assistant-card h3 {
+            font-size: 16px;
+        }
+
+        .assistant-card p {
+            color: #25322e;
+        }
+
+        .assistant-card strong {
+            color: #101a17;
+            font-weight: 900;
+        }
+
+        .assistant-card blockquote {
+            margin: 10px 0;
+            padding: 9px 12px;
+            border-left: 3px solid var(--primary);
+            background: #eef7f4;
+            color: #294842;
+            border-radius: 0 7px 7px 0;
+        }
+
+        .assistant-card pre {
+            margin: 10px 0;
+            padding: 12px;
+            overflow-x: auto;
+            border-radius: 8px;
+            background: #101918;
+            color: #e6f2ef;
+            font-size: 12px;
+            line-height: 1.55;
+        }
+
+        .assistant-card pre code {
+            padding: 0;
+            background: transparent;
+            color: inherit;
+        }
+
+        .assistant-card table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0 12px;
+            font-size: 13px;
+            overflow: hidden;
+            border-radius: 8px;
+        }
+
+        .assistant-card th,
+        .assistant-card td {
+            border: 1px solid #e2e9e6;
+            padding: 8px 9px;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .assistant-card th {
+            background: #edf5f2;
+            color: #20332f;
+            font-weight: 900;
+        }
+
+        .assistant-card tr:nth-child(even) td {
+            background: #fbfdfc;
+        }
+
+        .assistant-card hr {
+            border: 0;
+            height: 1px;
+            background: #e4ebe8;
+            margin: 14px -16px;
+        }
+
+        .assistant-card .kv-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 8px;
+            margin: 10px 0;
+        }
+
+        .kv-item {
+            border: 1px solid #e1e8e5;
+            background: #f8fbfa;
+            border-radius: 8px;
+            padding: 9px 10px;
+        }
+
+        .kv-key {
             display: block;
-            margin-bottom: 4px;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 800;
+            margin-bottom: 3px;
         }
 
-        /* 响应式 */
-        @media (max-width: 480px) {
-            .login-container {
-                padding: 30px 24px;
+        .kv-value {
+            color: #16241f;
+            font-size: 14px;
+            font-weight: 900;
+            word-break: break-word;
+        }
+
+        .render-empty {
+            color: var(--muted);
+            font-style: italic;
+        }
+
+        .action-row {
+            margin-top: 0;
+            padding: 12px 16px 16px;
+            background: #f7faf9;
+        }
+
+        .action-card {
+            background: white;
+            box-shadow: 0 8px 18px rgba(31, 48, 44, 0.06);
+        }
+
+        .composer {
+            position: sticky;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(12px);
+        }
+
+        @media (max-width: 900px) {
+            body {
+                overflow: auto;
             }
-            .feature-grid {
-                grid-template-columns: repeat(3, 1fr);
+
+            .app {
+                min-height: 100vh;
+                height: auto;
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                border-right: 0;
+                border-bottom: 1px solid var(--line);
+            }
+
+            .main {
+                height: 70vh;
+                min-height: 620px;
             }
         }
     </style>
 </head>
 <body>
-    <!-- ==================== 登录页面 ==================== -->
-    <div id="login-page">
-        <div class="login-container">
-            <!-- 登录表单 -->
-            <div id="login-section">
-                <div class="login-header">
-                    <div class="login-logo">🎓</div>
-                    <h1>清华AI助手</h1>
-                    <p>使用清华学号和密码登录</p>
+    <div class="app">
+        <aside class="sidebar">
+            <div class="brand">
+                <div>
+                    <div class="kicker">CampusOS</div>
+                    <h1>Campus Agent</h1>
                 </div>
-                <form id="login-form">
-                    <div class="form-group">
-                        <label>学号</label>
-                        <input type="text" id="userId" placeholder="请输入学号" autocomplete="username" required>
-                    </div>
-                    <div class="form-group">
-                        <label>密码</label>
-                        <input type="password" id="password" placeholder="请输入密码" autocomplete="current-password" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary" id="login-btn">登 录</button>
-                    <div class="error-msg" id="login-error"></div>
-                </form>
+                <div class="status-pill status-unknown" id="status-pill">
+                    <span class="dot"></span>
+                    <span id="status-label">未检查</span>
+                </div>
             </div>
 
-            <!-- 2FA 验证 -->
-            <div id="twofa-section">
-                <div class="login-header">
-                    <div class="login-logo">🔐</div>
-                    <h1>二次验证</h1>
-                    <p id="twofa-desc">请选择验证方式</p>
-                </div>
-
-                <!-- 方法选择 -->
-                <div id="twofa-method-selection">
-                    <div class="twofa-methods">
-                        <button class="twofa-method-btn" id="btn-wechat" onclick="selectTwoFactorMethod('wechat')">
-                            <span class="icon">💬</span>
-                            <span>微信验证</span>
-                        </button>
-                        <button class="twofa-method-btn" id="btn-mobile" onclick="selectTwoFactorMethod('mobile')">
-                            <span class="icon">📱</span>
-                            <span id="mobile-label">手机验证</span>
-                        </button>
-                        <button class="twofa-method-btn" id="btn-totp" onclick="selectTwoFactorMethod('totp')" style="display:none">
-                            <span class="icon">🔑</span>
-                            <span>TOTP验证</span>
-                        </button>
+            <section class="panel">
+                <h2 class="panel-title">会话连接</h2>
+                <div class="field-stack">
+                    <div class="field-row">
+                        <input id="backend-url" value="" aria-label="后端地址">
+                        <button class="btn secondary" id="health-btn">检查</button>
+                    </div>
+                    <input id="user-id" placeholder="学号" autocomplete="username">
+                    <input id="password" placeholder="密码" type="password" autocomplete="current-password">
+                    <label class="remember-row">
+                        <input id="remember-user-id" type="checkbox" checked>
+                        <span>记住学号</span>
+                    </label>
+                    <button class="btn" id="login-btn">登录</button>
+                    <div class="twofa-methods" id="twofa-methods">
+                        <button class="btn ghost" data-method="wechat">微信</button>
+                        <button class="btn ghost" data-method="mobile">短信</button>
+                        <button class="btn ghost" data-method="totp">TOTP</button>
+                    </div>
+                    <div class="twofa-code-row">
+                        <input id="twofa-code" placeholder="2FA 验证码" inputmode="numeric">
+                        <button class="btn ghost" id="twofa-submit">提交</button>
                     </div>
                 </div>
+            </section>
 
-                <!-- 验证码输入 -->
-                <div id="twofa-code-input" style="display:none">
-                    <div class="form-group">
-                        <label>验证码</label>
-                        <input type="text" id="twofa-code" placeholder="请输入验证码" maxlength="6" autocomplete="one-time-code">
-                    </div>
-                    <button class="btn btn-primary" onclick="submitTwoFactorCode()">验 证</button>
+            <section class="panel">
+                <h2 class="panel-title">能力入口</h2>
+                <div class="cap-grid">
+                    <button class="cap-card" data-prompt="今天下午有什么课">课表</button>
+                    <button class="cap-card" data-prompt="查一下我的校园卡余额">校园卡</button>
+                    <button class="cap-card" data-prompt="查一下研读间资源">研读间</button>
+                    <button class="cap-card" data-prompt="明天羽毛球场有没有空位">体育</button>
                 </div>
+            </section>
 
-                <!-- 完成登录提示（自动信任设备，不再需要用户选择） -->
-                <div id="twofa-completing" style="display:none">
-                    <p style="text-align:center; margin-bottom:20px; color: var(--text-light);">✅ 验证成功，正在完成登录并信任此设备...</p>
-                    <div style="text-align:center;"><div class="loading-spinner"></div></div>
+            <section class="panel">
+                <h2 class="panel-title">快捷任务</h2>
+                <div class="quick-list">
+                    <button class="chip" data-prompt="你现在支持哪些真实动作？">真实动作</button>
+                    <button class="chip" data-prompt="校园卡充 50 元">校园卡充 50</button>
+                    <button class="chip" data-prompt="帮我预约明天 10:00-11:00 的研读间">预约研读间</button>
+                    <button class="chip" data-prompt="打开明天羽毛球场预约页">打开体育预约页</button>
+                    <button class="chip" data-prompt="列出我当前待确认的动作">待确认动作</button>
+                    <button class="chip" data-prompt="确认执行">确认执行</button>
                 </div>
+            </section>
+        </aside>
 
-                <div class="error-msg" id="twofa-error"></div>
+        <main class="main">
+            <header class="main-header">
+                <div>
+                    <div class="main-title">Agent 工作台</div>
+                    <div class="kicker" id="health-line">等待连接后端</div>
+                </div>
+                <div class="header-actions">
+                    <button class="btn ghost" id="clear-btn">清空</button>
+                    <button class="btn ghost" id="logout-btn">退出</button>
+                </div>
+            </header>
+
+            <section class="messages" id="messages">
+                <div class="message assistant">
+                    <article class="assistant-card">
+                        <div class="assistant-body">
+                            <h2>Campus Agent 已就绪</h2>
+                            <div class="kv-grid">
+                                <div class="kv-item">
+                                    <span class="kv-key">支付</span>
+                                    <span class="kv-value">二维码确认</span>
+                                </div>
+                                <div class="kv-item">
+                                    <span class="kv-key">预约</span>
+                                    <span class="kv-value">先查余量再执行</span>
+                                </div>
+                                <div class="kv-item">
+                                    <span class="kv-key">体育</span>
+                                    <span class="kv-value">验证码面板辅助</span>
+                                </div>
+                            </div>
+                            <p>登录后直接输入校园任务，Agent 会把查询结果整理成表格、列表和动作卡片。</p>
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+            <footer class="composer">
+                <textarea id="chat-input" placeholder="输入校园任务，例如：查课表、校园卡充 50、打开羽毛球预约页" rows="1"></textarea>
+                <button class="btn send" id="send-btn">发送</button>
+            </footer>
+        </main>
+    </div>
+
+    <div class="modal-overlay" id="pay-overlay">
+        <div class="modal">
+            <div class="modal-head">
+                <h2>支付二维码</h2>
+                <button class="btn ghost" data-close-modal>关闭</button>
+            </div>
+            <div class="qr-box" id="pay-qr"></div>
+            <p>请使用手机支付宝或微信扫码完成支付。Web 端只负责展示订单二维码，不会自动扣款。</p>
+            <div class="url-box" id="pay-url"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="sports-overlay">
+        <div class="modal large">
+            <div class="modal-head">
+                <div>
+                    <h2>体育预约辅助面板</h2>
+                    <div class="kicker" id="sports-status">获取真实页面截图后，可在图上拖动滑块轨迹</div>
+                </div>
+                <button class="btn ghost" data-close-modal>关闭</button>
+            </div>
+            <div class="captcha-stage" id="captcha-stage"></div>
+            <div class="action-row">
+                <button class="btn secondary" id="refresh-captcha">刷新截图</button>
+                <button class="btn" id="submit-drag">提交拖动轨迹</button>
+                <button class="btn ghost" id="clear-drag">清除轨迹</button>
             </div>
         </div>
     </div>
 
-    <!-- ==================== 聊天页面 ==================== -->
-    <div id="chat-page">
-        <div class="chat-header">
-            <h2>🎓 清华AI助手</h2>
-            <div class="header-actions">
-                <button class="header-btn" onclick="clearChat()">🗑️ 清空</button>
-                <button class="header-btn" onclick="doLogout()">🚪 退出</button>
-            </div>
-        </div>
-
-        <div class="chat-messages" id="chat-messages">
-            <!-- 欢迎消息 -->
-            <div class="welcome-card">
-                <h3>👋 你好！我是清华AI助手</h3>
-                <p>我可以帮你查询课表、体育场馆、成绩、校园卡余额等校园信息。直接告诉我你想查什么吧！</p>
-                <div class="feature-grid">
-                    <div class="feature-item" onclick="sendQuickMessage('帮我查一下课表')">
-                        <span class="emoji">📅</span>
-                        课程表
-                    </div>
-                    <div class="feature-item" onclick="sendQuickMessage('明天有没有空的羽毛球场？')">
-                        <span class="emoji">🏸</span>
-                        羽毛球场
-                    </div>
-                    <div class="feature-item" onclick="sendQuickMessage('查一下我的成绩')">
-                        <span class="emoji">📊</span>
-                        成绩单
-                    </div>
-                    <div class="feature-item" onclick="sendQuickMessage('校园卡还有多少钱？')">
-                        <span class="emoji">💳</span>
-                        校园卡
-                    </div>
-                    <div class="feature-item" onclick="sendQuickMessage('帮我充值校园卡50元')">
-                        <span class="emoji">💰</span>
-                        卡充值
-                    </div>
-                    <div class="feature-item" onclick="sendQuickMessage('宿舍电费还剩多少？')">
-                        <span class="emoji">⚡</span>
-                        电费查询
-                    </div>
-                    <div class="feature-item" onclick="sendQuickMessage('最近有什么校内新闻？')">
-                        <span class="emoji">📰</span>
-                        校内新闻
-                    </div>
-                    <div class="feature-item" onclick="sendQuickMessage('现在是第几周？')">
-                        <span class="emoji">📆</span>
-                        教学日历
-                    </div>
-                    <div class="feature-item" onclick="sendQuickMessage('查一下图书馆信息')">
-                        <span class="emoji">📚</span>
-                        图书馆
-                    </div>
-                    <div class="feature-item" onclick="sendQuickMessage('有哪些体育场馆可以预约？')">
-                        <span class="emoji">🏟️</span>
-                        场馆列表
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="quick-actions" id="quick-actions">
-            <button class="quick-action-btn" onclick="sendQuickMessage('帮我查课表')">📅 课表</button>
-            <button class="quick-action-btn" onclick="sendQuickMessage('明天羽毛球场')">🏸 羽毛球</button>
-            <button class="quick-action-btn" onclick="sendQuickMessage('查成绩')">📊 成绩</button>
-            <button class="quick-action-btn" onclick="sendQuickMessage('校园卡余额')">💳 余额</button>
-            <button class="quick-action-btn" onclick="sendQuickMessage('充值校园卡50元')">💰 充值</button>
-            <button class="quick-action-btn" onclick="sendQuickMessage('电费')">⚡ 电费</button>
-            <button class="quick-action-btn" onclick="sendQuickMessage('校内新闻')">📰 新闻</button>
-        </div>
-
-        <div class="chat-input-area">
-            <textarea id="chat-input" placeholder="输入你的问题..." rows="1" onkeydown="handleKeyDown(event)"></textarea>
-            <button class="send-btn" id="send-btn" onclick="sendMessage()">➤</button>
-        </div>
-    </div>
+    <div class="toast" id="toast"></div>
 
     <script>
-        // ==================== 状态管理 ====================
-        let isLoading = false;
-        let loginPollingTimer = null;
+        const state = {
+            baseUrl: window.location.origin,
+            busy: false,
+            loginStatus: "unknown",
+            pendingPayUrls: [],
+            dragPoints: [],
+            dragStartTime: 0,
+        };
 
-        // ==================== 登录逻辑 ====================
-        document.getElementById('login-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const userId = document.getElementById('userId').value.trim();
-            const password = document.getElementById('password').value;
-            const loginBtn = document.getElementById('login-btn');
-            const errorEl = document.getElementById('login-error');
+        const $ = (id) => document.getElementById(id);
+        const savedUserId = window.localStorage.getItem("thu-ai-assistant:user-id");
 
-            if (!userId || !password) return;
+        $("backend-url").value = state.baseUrl;
+        if (savedUserId) {
+            $("user-id").value = savedUserId;
+            $("remember-user-id").checked = true;
+            $("password").focus();
+        }
 
-            loginBtn.disabled = true;
-            loginBtn.innerHTML = '<span class="loading-spinner"></span>登录中...';
-            errorEl.style.display = 'none';
+        const prompts = document.querySelectorAll("[data-prompt]");
+        prompts.forEach((node) => {
+            node.addEventListener("click", () => sendQuick(node.dataset.prompt));
+        });
 
-            try {
-                const res = await fetch('/api/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId, password }),
-                    credentials: 'include',
-                });
+        document.querySelectorAll("[data-close-modal]").forEach((node) => {
+            node.addEventListener("click", () => node.closest(".modal-overlay").style.display = "none");
+        });
 
-                const data = await res.json();
+        $("health-btn").addEventListener("click", checkHealth);
+        $("login-btn").addEventListener("click", login);
+        $("twofa-submit").addEventListener("click", submitTwoFactorCode);
+        $("send-btn").addEventListener("click", () => sendMessage());
+        $("clear-btn").addEventListener("click", clearChat);
+        $("logout-btn").addEventListener("click", logout);
+        $("refresh-captcha").addEventListener("click", loadCaptchaSnapshot);
+        $("submit-drag").addEventListener("click", submitCaptchaDrag);
+        $("clear-drag").addEventListener("click", () => {
+            state.dragPoints = [];
+            toast("已清除拖动轨迹");
+        });
 
-                if (res.ok) {
-                    if (data.status === 'success') {
-                        showChatPage();
-                    } else if (data.status === 'two_factor') {
-                        showTwoFactorUI(data.twoFactor);
-                    } else if (data.status === 'pending') {
-                        startLoginPolling();
-                    }
-                } else {
-                    errorEl.textContent = data.error || '登录失败';
-                    errorEl.style.display = 'block';
-                    loginBtn.disabled = false;
-                    loginBtn.textContent = '登 录';
-                }
-            } catch (err) {
-                errorEl.textContent = '网络错误，请重试';
-                errorEl.style.display = 'block';
-                loginBtn.disabled = false;
-                loginBtn.textContent = '登 录';
+        document.querySelectorAll("#twofa-methods [data-method]").forEach((node) => {
+            node.addEventListener("click", () => selectTwoFactorMethod(node.dataset.method));
+        });
+
+        $("chat-input").addEventListener("keydown", (event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
             }
         });
 
-        function startLoginPolling() {
-            if (loginPollingTimer) clearInterval(loginPollingTimer);
-            loginPollingTimer = setInterval(async () => {
-                try {
-                    const res = await fetch('/api/login/status', { credentials: 'include' });
-                    const data = await res.json();
-                    console.log('[Polling] status:', data.status, data);
-
-                    if (data.status === 'success') {
-                        clearInterval(loginPollingTimer);
-                        loginPollingTimer = null;
-                        showChatPage();
-                    } else if (data.status === 'two_factor') {
-                        clearInterval(loginPollingTimer);
-                        loginPollingTimer = null;
-                        showTwoFactorUI(data.twoFactor);
-                    } else if (data.status === 'error') {
-                        clearInterval(loginPollingTimer);
-                        loginPollingTimer = null;
-                        const loginBtn = document.getElementById('login-btn');
-                        const errorEl = document.getElementById('login-error');
-                        // 回到登录页面显示错误
-                        document.getElementById('login-section').style.display = 'block';
-                        document.getElementById('twofa-section').style.display = 'none';
-                        errorEl.textContent = data.error || '登录失败';
-                        errorEl.style.display = 'block';
-                        loginBtn.disabled = false;
-                        loginBtn.textContent = '登 录';
-                    } else if (data.status === 'not_logged_in') {
-                        clearInterval(loginPollingTimer);
-                        loginPollingTimer = null;
-                        const loginBtn = document.getElementById('login-btn');
-                        loginBtn.disabled = false;
-                        loginBtn.textContent = '登 录';
-                    }
-                    // status === 'pending' 时继续轮询
-                } catch (e) {
-                    console.error('[Polling] error:', e);
-                    // 继续轮询
+        ["user-id", "password"].forEach((id) => {
+            $(id).addEventListener("keydown", (event) => {
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    login();
                 }
-            }, 1500);
+            });
+        });
+
+        $("chat-input").addEventListener("input", function () {
+            this.style.height = "auto";
+            this.style.height = Math.min(this.scrollHeight, 140) + "px";
+        });
+
+        function apiBase() {
+            return $("backend-url").value.replace(/\/+$/, "");
         }
 
-        // ==================== 2FA 逻辑 ====================
-        function showTwoFactorUI(twoFactor) {
-            document.getElementById('login-section').style.display = 'none';
-            document.getElementById('twofa-section').style.display = 'block';
+        async function request(path, options = {}) {
+            const response = await fetch(`${apiBase()}${path}`, {
+                ...options,
+                credentials: "include",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(options.headers || {}),
+                },
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(body.error || body.message || `HTTP ${response.status}`);
+            }
+            return body;
+        }
 
-            if (twoFactor.type === 'method_selection') {
-                document.getElementById('twofa-method-selection').style.display = 'block';
-                document.getElementById('twofa-code-input').style.display = 'none';
-                document.getElementById('twofa-completing').style.display = 'none';
-                document.getElementById('twofa-desc').textContent = '请选择验证方式';
+        function setBusy(value) {
+            state.busy = value;
+            ["health-btn", "login-btn", "send-btn", "twofa-submit"].forEach((id) => {
+                $(id).disabled = value;
+            });
+        }
 
-                // 根据可用方式显示/隐藏按钮
-                document.getElementById('btn-wechat').style.display = twoFactor.hasWeChatBool ? 'flex' : 'none';
-                document.getElementById('btn-mobile').style.display = twoFactor.phone ? 'flex' : 'none';
-                document.getElementById('btn-totp').style.display = twoFactor.hasTotp ? 'flex' : 'none';
+        function setStatus(status) {
+            state.loginStatus = status || "unknown";
+            const labels = {
+                unknown: "未检查",
+                not_logged_in: "未登录",
+                pending: "登录中",
+                two_factor: "二次验证",
+                success: "已登录",
+                error: "登录失败",
+            };
+            const pill = $("status-pill");
+            pill.className = `status-pill status-${state.loginStatus}`;
+            $("status-label").textContent = labels[state.loginStatus] || state.loginStatus;
+        }
 
-                if (twoFactor.phone) {
-                    document.getElementById('mobile-label').textContent = `手机验证 (${twoFactor.phone})`;
-                }
-            } else if (twoFactor.type === 'code_input') {
-                document.getElementById('twofa-method-selection').style.display = 'none';
-                document.getElementById('twofa-code-input').style.display = 'block';
-                document.getElementById('twofa-completing').style.display = 'none';
-                document.getElementById('twofa-desc').textContent = '请输入收到的验证码';
-                document.getElementById('twofa-code').focus();
-            } else if (twoFactor.type === 'trust_device') {
-                // 后端自动信任设备，前端只显示完成提示
-                document.getElementById('twofa-method-selection').style.display = 'none';
-                document.getElementById('twofa-code-input').style.display = 'none';
-                document.getElementById('twofa-completing').style.display = 'block';
-                document.getElementById('twofa-desc').textContent = '验证成功！';
+        function toast(text) {
+            const node = $("toast");
+            node.textContent = text;
+            node.style.display = "block";
+            setTimeout(() => {
+                node.style.display = "none";
+            }, 2400);
+        }
+
+        async function checkHealth() {
+            setBusy(true);
+            try {
+                const [health, capabilities] = await Promise.all([
+                    request("/api/health"),
+                    request("/api/capabilities"),
+                ]);
+                $("health-line").textContent = `${health.service} · ${capabilities.count} 个能力 · 运行 ${health.uptimeSeconds}s`;
+                addSystem(`后端连接成功：${health.service}，已加载 ${capabilities.count} 个能力。`);
+            } catch (error) {
+                addSystem(`后端连接失败：${error.message}`);
+            } finally {
+                setBusy(false);
             }
         }
 
-        async function selectTwoFactorMethod(method) {
-            console.log('[2FA] 选择验证方式:', method);
+        async function login() {
+            const userId = $("user-id").value.trim();
+            const password = $("password").value;
+            if (!userId || !password) {
+                toast("请输入学号和密码");
+                return;
+            }
+            setBusy(true);
             try {
-                const res = await fetch('/api/login/2fa/method', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ method }),
-                    credentials: 'include',
+                const body = await request("/api/login", {
+                    method: "POST",
+                    body: JSON.stringify({ userId, password }),
                 });
-
-                const data = await res.json();
-                console.log('[2FA] 方法选择响应:', data);
-
-                if (res.ok) {
-                    // 开始轮询等待验证码输入界面
-                    startLoginPolling();
+                if ($("remember-user-id").checked) {
+                    window.localStorage.setItem("thu-ai-assistant:user-id", userId);
                 } else {
-                    showTwoFactorError(data.error || '操作失败');
+                    window.localStorage.removeItem("thu-ai-assistant:user-id");
                 }
-            } catch (e) {
-                console.error('[2FA] 网络错误:', e);
-                showTwoFactorError('网络错误');
+                setStatus(body.status);
+                if (body.status === "success") {
+                    addSystem("登录成功。");
+                } else if (body.status === "two_factor") {
+                    showTwoFactor(body.twoFactor);
+                    addSystem("需要二次验证。");
+                } else {
+                    addSystem("登录已提交，等待后端完成。");
+                    await pollLoginStatus();
+                }
+            } catch (error) {
+                setStatus("error");
+                addSystem(`登录失败：${error.message}`);
+            } finally {
+                setBusy(false);
+            }
+        }
+
+        async function pollLoginStatus() {
+            for (let i = 0; i < 40; i += 1) {
+                await new Promise((resolve) => setTimeout(resolve, 1500));
+                const body = await request("/api/login/status");
+                setStatus(body.status);
+                if (body.status === "success") {
+                    addSystem("登录成功。");
+                    return;
+                }
+                if (body.status === "two_factor") {
+                    showTwoFactor(body.twoFactor);
+                    addSystem("需要二次验证。");
+                    return;
+                }
+                if (body.status === "error" || body.status === "not_logged_in") {
+                    addSystem(body.error ? `登录失败：${body.error}` : `登录未完成：${body.status}`);
+                    return;
+                }
+            }
+            addSystem("登录仍在进行中，请稍后重试。");
+        }
+
+        function showTwoFactor(twoFactor) {
+            const methods = $("twofa-methods");
+            methods.style.display = twoFactor?.type === "method_selection" ? "grid" : "none";
+            methods.querySelector('[data-method="wechat"]').style.display = twoFactor?.hasWeChatBool ? "block" : "none";
+            methods.querySelector('[data-method="mobile"]').style.display = twoFactor?.phone ? "block" : "none";
+            methods.querySelector('[data-method="totp"]').style.display = twoFactor?.hasTotp ? "block" : "none";
+        }
+
+        async function selectTwoFactorMethod(method) {
+            setBusy(true);
+            try {
+                await request("/api/login/2fa/method", {
+                    method: "POST",
+                    body: JSON.stringify({ method }),
+                });
+                addSystem(`已选择 ${method} 验证方式，请输入验证码。`);
+                await pollLoginStatus();
+            } catch (error) {
+                addSystem(`选择验证方式失败：${error.message}`);
+            } finally {
+                setBusy(false);
             }
         }
 
         async function submitTwoFactorCode() {
-            const code = document.getElementById('twofa-code').value.trim();
+            const code = $("twofa-code").value.trim();
             if (!code) return;
-
-            console.log('[2FA] 提交验证码:', code.substring(0, 2) + '***');
-
+            setBusy(true);
             try {
-                const res = await fetch('/api/login/2fa/code', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                await request("/api/login/2fa/code", {
+                    method: "POST",
                     body: JSON.stringify({ code }),
-                    credentials: 'include',
                 });
-
-                const data = await res.json();
-                console.log('[2FA] 验证码响应:', data);
-
-                if (res.ok) {
-                    startLoginPolling();
-                } else {
-                    showTwoFactorError(data.error || '验证失败');
-                }
-            } catch (e) {
-                console.error('[2FA] 网络错误:', e);
-                showTwoFactorError('网络错误');
+                addSystem("验证码已提交，等待后端完成登录。");
+                await pollLoginStatus();
+            } catch (error) {
+                addSystem(`提交验证码失败：${error.message}`);
+            } finally {
+                setBusy(false);
             }
         }
 
-        async function submitTrustDevice(trust) {
+        async function sendQuick(prompt) {
+            $("chat-input").value = prompt;
+            await sendMessage(prompt);
+        }
+
+        async function sendMessage(forcedText) {
+            const input = $("chat-input");
+            const message = (forcedText || input.value).trim();
+            if (!message || state.busy) return;
+            input.value = "";
+            input.style.height = "auto";
+            addMessage(message, "user");
+            setBusy(true);
+            const typing = addTyping();
             try {
-                await fetch('/api/login/2fa/trust', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ trust }),
-                    credentials: 'include',
-                });
-                startLoginPolling();
-            } catch (e) {
-                // 继续轮询
-                startLoginPolling();
-            }
-        }
-
-        function showTwoFactorError(msg) {
-            const el = document.getElementById('twofa-error');
-            el.textContent = msg;
-            el.style.display = 'block';
-            setTimeout(() => { el.style.display = 'none'; }, 3000);
-        }
-
-        // ==================== 聊天逻辑 ====================
-        function showChatPage() {
-            document.getElementById('login-page').style.display = 'none';
-            document.getElementById('chat-page').style.display = 'flex';
-            document.getElementById('chat-input').focus();
-        }
-
-        function addMessage(content, isUser) {
-            const messagesEl = document.getElementById('chat-messages');
-            const msgDiv = document.createElement('div');
-            msgDiv.className = `message ${isUser ? 'user' : 'ai'}`;
-
-            const avatar = document.createElement('div');
-            avatar.className = 'message-avatar';
-            avatar.textContent = isUser ? '👤' : '🎓';
-
-            const bubble = document.createElement('div');
-            bubble.className = 'message-bubble';
-            bubble.innerHTML = formatMessage(content);
-
-            msgDiv.appendChild(avatar);
-            msgDiv.appendChild(bubble);
-            messagesEl.appendChild(msgDiv);
-            messagesEl.scrollTop = messagesEl.scrollHeight;
-
-            // 生成支付二维码
-            if (!isUser) {
-                renderPayQrCodes(content, bubble);
-            }
-
-            return msgDiv;
-        }
-
-        function addTypingIndicator() {
-            const messagesEl = document.getElementById('chat-messages');
-            const msgDiv = document.createElement('div');
-            msgDiv.className = 'message ai';
-            msgDiv.id = 'typing-indicator';
-
-            const avatar = document.createElement('div');
-            avatar.className = 'message-avatar';
-            avatar.textContent = '🎓';
-
-            const bubble = document.createElement('div');
-            bubble.className = 'message-bubble';
-            bubble.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
-
-            msgDiv.appendChild(avatar);
-            msgDiv.appendChild(bubble);
-            messagesEl.appendChild(msgDiv);
-            messagesEl.scrollTop = messagesEl.scrollHeight;
-        }
-
-        function removeTypingIndicator() {
-            const el = document.getElementById('typing-indicator');
-            if (el) el.remove();
-        }
-
-        // 全局存储支付URL，供弹窗使用
-        let pendingPayUrls = [];
-
-        function formatMessage(text) {
-            // 先提取支付二维码标记中的URL（在HTML转义之前）
-            const payQrRegex = /\[PAY_QR:(.+?)\]/g;
-            let payQrMatches = [];
-            let match;
-            while ((match = payQrRegex.exec(text)) !== null) {
-                payQrMatches.push({ full: match[0], url: match[1] });
-            }
-
-            // 保存支付URL供后续渲染使用
-            pendingPayUrls = payQrMatches.map(m => m.url);
-
-            // 先移除 [PAY_QR:...] 标记，再做HTML转义，避免URL中的特殊字符被破坏
-            let cleanText = text;
-            for (let i = 0; i < payQrMatches.length; i++) {
-                cleanText = cleanText.replace(payQrMatches[i].full, `__PAY_QR_PLACEHOLDER_${i}__`);
-            }
-
-            // 简单的 Markdown 渲染
-            let html = cleanText
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\*(.+?)\*/g, '<em>$1</em>')
-                .replace(/`(.+?)`/g, '<code>$1</code>')
-                .replace(/\n\n/g, '</p><p>')
-                .replace(/\n- /g, '</p><li>')
-                .replace(/\n(\d+)\. /g, '</p><li>')
-                .replace(/\n/g, '<br>')
-                .replace(/^/, '<p>')
-                .replace(/$/, '</p>');
-
-            // 将占位符替换为支付卡片
-            for (let i = 0; i < payQrMatches.length; i++) {
-                html = html.replace(
-                    `__PAY_QR_PLACEHOLDER_${i}__`,
-`<div class="pay-qr-card" data-pay-index="${i}"><h4>✅ 充值订单已创建</h4><div class="qr-canvas-container"></div><p class="pay-tip">请使用手机微信/支付宝扫描二维码完成支付</p><button class="pay-link-btn" onclick="openPayModal(${i})">🔍 查看大图二维码</button></div>`
-                );
-            }
-
-            return html;
-        }
-
-        async function sendMessage() {
-            const input = document.getElementById('chat-input');
-            const message = input.value.trim();
-            if (!message || isLoading) return;
-
-            // 隐藏欢迎卡片
-            const welcomeCard = document.querySelector('.welcome-card');
-            if (welcomeCard) welcomeCard.style.display = 'none';
-
-            addMessage(message, true);
-            input.value = '';
-            input.style.height = 'auto';
-            isLoading = true;
-            document.getElementById('send-btn').disabled = true;
-
-            addTypingIndicator();
-
-            try {
-                const res = await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                const body = await request("/api/chat", {
+                    method: "POST",
                     body: JSON.stringify({ message }),
-                    credentials: 'include',
                 });
+                typing.remove();
+                addMessage(body.reply || "后端没有返回回复。", "assistant");
+            } catch (error) {
+                typing.remove();
+                if (String(error.message).includes("请先登录")) setStatus("not_logged_in");
+                addMessage(`### 调用失败\n${error.message}`, "assistant");
+            } finally {
+                setBusy(false);
+                input.focus();
+            }
+        }
 
-                removeTypingIndicator();
+        function addSystem(text) {
+            const wrapper = document.createElement("div");
+            wrapper.className = "system-event";
+            wrapper.textContent = text;
+            $("messages").appendChild(wrapper);
+            scrollToBottom();
+        }
 
-                if (res.ok) {
-                    const data = await res.json();
-                    addMessage(data.reply, false);
-                } else {
-                    const data = await res.json();
-                    if (res.status === 401) {
-                        addMessage('⚠️ 会话已过期，请重新登录。', false);
-                        setTimeout(() => location.reload(), 2000);
-                    } else {
-                        addMessage('❌ ' + (data.error || '请求失败，请重试'), false);
-                    }
+        function addTyping() {
+            const wrapper = document.createElement("div");
+            wrapper.className = "message assistant";
+            wrapper.innerHTML = `<article class="assistant-card"><div class="typing"><span></span><span></span><span></span></div></article>`;
+            $("messages").appendChild(wrapper);
+            scrollToBottom();
+            return wrapper;
+        }
+
+        function addMessage(content, role) {
+            const wrapper = document.createElement("div");
+            wrapper.className = `message ${role}`;
+            if (role === "user") {
+                const bubble = document.createElement("div");
+                bubble.className = "user-bubble";
+                bubble.textContent = content;
+                wrapper.appendChild(bubble);
+            } else {
+                const card = document.createElement("article");
+                card.className = "assistant-card";
+                const parsed = parseActionMarkers(content);
+                const body = document.createElement("div");
+                body.className = "assistant-body";
+                body.innerHTML = renderMarkdown(parsed.cleanText);
+                card.appendChild(body);
+                renderActionCards(card, parsed);
+                if (parsed.hasSportsCaptcha) {
+                    setTimeout(() => openSportsPanel(), 0);
                 }
-            } catch (e) {
-                removeTypingIndicator();
-                addMessage('❌ 网络错误，请检查网络连接后重试', false);
+                wrapper.appendChild(card);
             }
-
-            isLoading = false;
-            document.getElementById('send-btn').disabled = false;
-            input.focus();
+            $("messages").appendChild(wrapper);
+            scrollToBottom();
         }
 
-        function sendQuickMessage(msg) {
-            document.getElementById('chat-input').value = msg;
-            sendMessage();
+        function parseActionMarkers(content) {
+            const payUrls = [];
+            const openUrls = [];
+            let cleanText = content
+                .replace(/\[PAY_QR:([^\]]+)\]/g, (_, url) => {
+                    payUrls.push(url);
+                    return "";
+                })
+                .replace(/\[OPEN_URL:([^\]]+)\]/g, (_, url) => {
+                    openUrls.push(url);
+                    return "";
+                });
+            const hasSportsCaptcha = cleanText.includes("[SPORTS_CAPTCHA:current]");
+            cleanText = cleanText.replace(/\[SPORTS_CAPTCHA:current\]/g, "");
+            return { cleanText: cleanText.trim(), payUrls, openUrls, hasSportsCaptcha };
         }
 
-        function handleKeyDown(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
+        function escapeHtml(text) {
+            return text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;");
+        }
+
+        function tryRenderJsonSummary(text) {
+            const trimmed = text.trim();
+            if (!trimmed || !/^[\[{]/.test(trimmed)) return "";
+            try {
+                const data = JSON.parse(trimmed);
+                const rows = [];
+                const pushRow = (key, value) => {
+                    if (value === undefined || value === null || typeof value === "object") return;
+                    rows.push(`<div class="kv-item"><span class="kv-key">${escapeHtml(key)}</span><span class="kv-value">${escapeHtml(String(value))}</span></div>`);
+                };
+                const source = Array.isArray(data) ? data[0] : data;
+                if (!source || typeof source !== "object") return "";
+                Object.entries(source).slice(0, 8).forEach(([key, value]) => pushRow(key, value));
+                if (!rows.length) return "";
+                return `<div class="kv-grid">${rows.join("")}</div><pre><code>${escapeHtml(JSON.stringify(data, null, 2))}</code></pre>`;
+            } catch {
+                return "";
             }
         }
 
-        // 自动调整输入框高度
-        document.getElementById('chat-input').addEventListener('input', function() {
-            this.style.height = 'auto';
-            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
-        });
-
-        async function clearChat() {
-            try {
-                await fetch('/api/chat/clear', {
-                    method: 'POST',
-                    credentials: 'include',
-                });
-            } catch (e) { /* ignore */ }
-
-            const messagesEl = document.getElementById('chat-messages');
-            messagesEl.innerHTML = '';
-
-            // 重新显示欢迎消息
-            messagesEl.innerHTML = `
-                <div class="welcome-card">
-                    <h3>👋 聊天已清空</h3>
-                    <p>你可以重新开始提问，我随时为你服务！</p>
-                </div>
-            `;
+        function isTableDivider(line) {
+            return /^\s*\|?[\s:-]+\|[\s|:-]*$/.test(line);
         }
 
-        async function doLogout() {
-            try {
-                await fetch('/api/logout', {
-                    method: 'POST',
-                    credentials: 'include',
-                });
-            } catch (e) { /* ignore */ }
-            location.reload();
+        function renderTable(lines, startIndex) {
+            const tableLines = [];
+            let index = startIndex;
+            while (index < lines.length && lines[index].includes("|") && lines[index].trim()) {
+                tableLines.push(lines[index]);
+                index += 1;
+            }
+            if (tableLines.length < 2 || !isTableDivider(tableLines[1])) {
+                return null;
+            }
+            const parseCells = (line) => line
+                .trim()
+                .replace(/^\|/, "")
+                .replace(/\|$/, "")
+                .split("|")
+                .map((cell) => cell.trim());
+            const header = parseCells(tableLines[0]);
+            const bodyLines = tableLines.slice(2);
+            const thead = `<thead><tr>${header.map((cell) => `<th>${renderInline(escapeHtml(cell))}</th>`).join("")}</tr></thead>`;
+            const tbody = `<tbody>${bodyLines.map((line) => {
+                const cells = parseCells(line);
+                return `<tr>${cells.map((cell) => `<td>${renderInline(escapeHtml(cell))}</td>`).join("")}</tr>`;
+            }).join("")}</tbody>`;
+            return { html: `<table>${thead}${tbody}</table>`, nextIndex: index };
         }
 
-        // ==================== 支付二维码渲染 ====================
-        function generateQrToContainer(container, url, size) {
-            // 方案1: 使用 qrcode 库的 toCanvas
-            if (typeof QRCode !== 'undefined' && QRCode.toCanvas) {
-                const canvas = document.createElement('canvas');
-                QRCode.toCanvas(canvas, url, {
-                    width: size || 200,
-                    margin: 2,
-                    color: { dark: '#000000', light: '#ffffff' }
-                }, function(error) {
-                    if (error) {
-                        console.error('[QR] toCanvas失败:', error);
-                        fallbackQr(container, url, size);
+        function renderMarkdown(text) {
+            if (!text) return '<p class="render-empty">没有返回可展示内容。</p>';
+            const jsonSummary = tryRenderJsonSummary(text);
+            if (jsonSummary) return jsonSummary;
+            const lines = text.split(/\r?\n/);
+            const blocks = [];
+            let list = null;
+            let code = null;
+            const flushList = () => {
+                if (list) {
+                    blocks.push(`${list.type === "ol" ? "<ol>" : "<ul>"}${list.items.join("")}${list.type === "ol" ? "</ol>" : "</ul>"}`);
+                    list = null;
+                }
+            };
+            const flushCode = () => {
+                if (code) {
+                    blocks.push(`<pre><code>${escapeHtml(code.lines.join("\n"))}</code></pre>`);
+                    code = null;
+                }
+            };
+            for (let i = 0; i < lines.length; i += 1) {
+                const raw = lines[i];
+                const line = raw.trim();
+                const fence = /^```/.exec(line);
+                if (fence) {
+                    if (code) {
+                        flushCode();
+                    } else {
+                        flushList();
+                        code = { lines: [] };
                     }
+                    continue;
+                }
+                if (code) {
+                    code.lines.push(raw);
+                    continue;
+                }
+                if (!line) {
+                    flushList();
+                    continue;
+                }
+                const table = renderTable(lines, i);
+                if (table) {
+                    flushList();
+                    blocks.push(table.html);
+                    i = table.nextIndex - 1;
+                    continue;
+                }
+                const heading = /^(#{1,3})\s+(.+)$/.exec(line);
+                const bullet = /^[-*]\s+(.+)$/.exec(line);
+                const ordered = /^(\d+)[.)]\s+(.+)$/.exec(line);
+                const quote = /^>\s+(.+)$/.exec(line);
+                const hr = /^-{3,}$/.exec(line);
+                if (heading) {
+                    flushList();
+                    const tag = heading[1].length === 1 ? "h2" : "h3";
+                    blocks.push(`<${tag}>${renderInline(escapeHtml(heading[2]))}</${tag}>`);
+                } else if (bullet) {
+                    if (!list || list.type !== "ul") {
+                        flushList();
+                        list = { type: "ul", items: [] };
+                    }
+                    list.items.push(`<li>${renderInline(escapeHtml(bullet[1]))}</li>`);
+                } else if (ordered) {
+                    if (!list || list.type !== "ol") {
+                        flushList();
+                        list = { type: "ol", items: [] };
+                    }
+                    list.items.push(`<li>${renderInline(escapeHtml(ordered[2]))}</li>`);
+                } else if (quote) {
+                    flushList();
+                    blocks.push(`<blockquote>${renderInline(escapeHtml(quote[1]))}</blockquote>`);
+                } else if (hr) {
+                    flushList();
+                    blocks.push("<hr>");
+                } else {
+                    flushList();
+                    blocks.push(`<p>${renderInline(escapeHtml(line))}</p>`);
+                }
+            }
+            flushList();
+            flushCode();
+            return blocks.join("");
+        }
+
+        function renderInline(text) {
+            return text
+                .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+                .replace(/`(.+?)`/g, "<code>$1</code>")
+                .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+        }
+
+        function renderActionCards(card, parsed) {
+            if (!parsed.payUrls.length && !parsed.openUrls.length && !parsed.hasSportsCaptcha) return;
+            const row = document.createElement("div");
+            row.className = "action-row";
+
+            parsed.payUrls.forEach((url) => {
+                const item = document.createElement("div");
+                item.className = "action-card";
+                item.innerHTML = `<strong>支付订单</strong><p>Web 端可直接弹出二维码，手机扫码完成支付。</p>`;
+                const button = document.createElement("button");
+                button.className = "btn";
+                button.textContent = "查看二维码";
+                button.addEventListener("click", () => openPayModal(url));
+                item.appendChild(button);
+                row.appendChild(item);
+            });
+
+            parsed.openUrls.forEach((url) => {
+                const item = document.createElement("div");
+                item.className = "action-card";
+                item.innerHTML = `<strong>预约跳转</strong><p>打开真实预约页面，完成选择、验证码或最终提交。</p>`;
+                const button = document.createElement("button");
+                button.className = "btn secondary";
+                button.textContent = "打开页面";
+                button.addEventListener("click", () => window.open(url, "_blank", "noopener,noreferrer"));
+                item.appendChild(button);
+                row.appendChild(item);
+            });
+
+            if (parsed.hasSportsCaptcha) {
+                const item = document.createElement("div");
+                item.className = "action-card";
+                item.innerHTML = `<strong>体育验证码</strong><p>拉取后端 Selenium 当前页面截图，手动拖动轨迹后回放。</p>`;
+                const button = document.createElement("button");
+                button.className = "btn";
+                button.textContent = "打开辅助面板";
+                button.addEventListener("click", () => openSportsPanel());
+                item.appendChild(button);
+                row.appendChild(item);
+            }
+
+            card.appendChild(row);
+        }
+
+        function openPayModal(url) {
+            $("pay-url").textContent = url;
+            const container = $("pay-qr");
+            container.innerHTML = "";
+            generateQr(container, url, 280);
+            $("pay-overlay").style.display = "flex";
+        }
+
+        function generateQr(container, url, size) {
+            if (window.QRCode?.toCanvas) {
+                const canvas = document.createElement("canvas");
+                QRCode.toCanvas(canvas, url, {
+                    width: size,
+                    margin: 2,
+                    color: { dark: "#000000", light: "#ffffff" },
+                }, (error) => {
+                    if (error) fallbackQr(container, url, size);
                 });
                 container.appendChild(canvas);
                 return;
             }
-            // 方案2: 使用 qrcode 库的 toDataURL
-            if (typeof QRCode !== 'undefined' && QRCode.toDataURL) {
-                QRCode.toDataURL(url, { width: size || 200, margin: 2 }, function(err, dataUrl) {
-                    if (err) {
-                        console.error('[QR] toDataURL失败:', err);
-                        fallbackQr(container, url, size);
-                        return;
-                    }
-                    const img = document.createElement('img');
-                    img.src = dataUrl;
-                    img.style.width = (size || 200) + 'px';
-                    img.style.height = (size || 200) + 'px';
-                    container.appendChild(img);
-                });
-                return;
-            }
-            // 方案3: 使用 qrcode-generator 库
-            if (typeof qrcode === 'function') {
-                try {
-                    const qr = qrcode(0, 'M');
-                    qr.addData(url);
-                    qr.make();
-                    container.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2 });
-                    return;
-                } catch(e) {
-                    console.error('[QR] qrcode-generator失败:', e);
-                }
-            }
-            // 方案4: 使用在线API生成二维码图片
             fallbackQr(container, url, size);
         }
 
         function fallbackQr(container, url, size) {
-            const s = size || 200;
-            const img = document.createElement('img');
-            img.src = `https://api.qrserver.com/v1/create-qr-code/?size=${s}x${s}&data=${encodeURIComponent(url)}`;
-            img.alt = '支付二维码';
-            img.style.width = s + 'px';
-            img.style.height = s + 'px';
-            img.onerror = function() {
-                // 最终fallback: 使用另一个API
-                this.onerror = null;
-                this.src = `https://chart.googleapis.com/chart?cht=qr&chs=${s}x${s}&chl=${encodeURIComponent(url)}`;
-            };
+            const img = document.createElement("img");
+            img.alt = "支付二维码";
+            img.src = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(url)}`;
             container.appendChild(img);
         }
 
-        function renderPayQrCodes(content, bubble) {
-            if (pendingPayUrls.length === 0) return;
+        async function openSportsPanel() {
+            $("sports-overlay").style.display = "flex";
+            await loadCaptchaSnapshot();
+        }
 
-            for (let index = 0; index < pendingPayUrls.length; index++) {
-                const payUrl = pendingPayUrls[index];
-                const qrCard = bubble.querySelector(`[data-pay-index="${index}"]`);
-                if (qrCard) {
-                    const container = qrCard.querySelector('.qr-canvas-container');
-                    if (container) {
-                        console.log('[QR] 开始生成二维码, URL:', payUrl.substring(0, 50) + '...');
-                        generateQrToContainer(container, payUrl, 200);
-                    }
+        async function loadCaptchaSnapshot() {
+            $("sports-status").textContent = "正在获取真实页面截图...";
+            const stage = $("captcha-stage");
+            stage.innerHTML = "";
+            state.dragPoints = [];
+            try {
+                const body = await request("/api/sports/captcha/screenshot");
+                if (!body.success || !body.imageDataUrl) {
+                    throw new Error(body.message || body.error || "没有可用截图");
                 }
+                const img = document.createElement("img");
+                img.src = body.imageDataUrl;
+                img.alt = "体育预约页面截图";
+                attachDragHandlers(img);
+                stage.appendChild(img);
+                $("sports-status").textContent = body.currentUrl ? `当前页面：${body.currentUrl}` : "截图已加载";
+            } catch (error) {
+                stage.innerHTML = `<p style="color:white;padding:24px;">${escapeHtml(error.message)}</p>`;
+                $("sports-status").textContent = "获取截图失败";
             }
         }
 
-        // ==================== 支付弹窗 ====================
-        function openPayModal(payIndex) {
-            const payUrl = pendingPayUrls[payIndex];
-            if (!payUrl) {
-                alert('支付链接不可用');
+        function attachDragHandlers(img) {
+            let dragging = false;
+            const addPoint = (event) => {
+                const rect = img.getBoundingClientRect();
+                const scaleX = img.naturalWidth / rect.width;
+                const scaleY = img.naturalHeight / rect.height;
+                state.dragPoints.push({
+                    x: Math.round((event.clientX - rect.left) * scaleX),
+                    y: Math.round((event.clientY - rect.top) * scaleY),
+                    t: Date.now() - state.dragStartTime,
+                });
+            };
+            img.addEventListener("pointerdown", (event) => {
+                dragging = true;
+                state.dragPoints = [];
+                state.dragStartTime = Date.now();
+                img.setPointerCapture(event.pointerId);
+                addPoint(event);
+            });
+            img.addEventListener("pointermove", (event) => {
+                if (dragging) addPoint(event);
+            });
+            img.addEventListener("pointerup", (event) => {
+                if (dragging) {
+                    addPoint(event);
+                    dragging = false;
+                    $("sports-status").textContent = `已记录 ${state.dragPoints.length} 个拖动点`;
+                }
+            });
+        }
+
+        async function submitCaptchaDrag() {
+            if (!state.dragPoints.length) {
+                toast("请先在截图上拖动滑块轨迹");
                 return;
             }
-
-            // 创建弹窗
-            const overlay = document.createElement('div');
-            overlay.className = 'pay-modal-overlay';
-            overlay.onclick = function(e) {
-                if (e.target === overlay) overlay.remove();
-            };
-
-            const modal = document.createElement('div');
-            modal.className = 'pay-modal';
-            modal.innerHTML = `
-                <h3>💳 校园卡充值</h3>
-                <div class="pay-modal-qr" id="modal-qr-container"></div>
-                <p style="color:#6b7280; font-size:13px; margin-bottom:8px;">请使用手机微信/支付宝扫描上方二维码完成支付</p>
-                <div class="pay-modal-actions">
-                    <button class="pay-modal-close" onclick="this.closest('.pay-modal-overlay').remove()">关闭</button>
-                </div>
-            `;
-
-            overlay.appendChild(modal);
-            document.body.appendChild(overlay);
-
-            // 在弹窗中生成二维码
-            const qrContainer = modal.querySelector('#modal-qr-container');
-            if (qrContainer) {
-                generateQrToContainer(qrContainer, payUrl, 280);
+            $("sports-status").textContent = "正在回放拖动轨迹...";
+            try {
+                const body = await request("/api/sports/captcha/drag", {
+                    method: "POST",
+                    body: JSON.stringify({ points: state.dragPoints }),
+                });
+                $("sports-status").textContent = body.message || "拖动轨迹已提交";
+                toast(body.success ? "轨迹提交成功" : "轨迹提交失败");
+            } catch (error) {
+                $("sports-status").textContent = `提交失败：${error.message}`;
             }
         }
 
-        // ==================== 初始化 ====================
-        // 检查是否已登录
-        (async () => {
+        async function clearChat() {
+            await request("/api/chat/clear", { method: "POST" }).catch(() => {});
+            $("messages").innerHTML = "";
+            addMessage("### Campus Agent 已就绪\n- Web 端会直接展示支付二维码和预约跳转链接\n- 真实动作会先生成确认动作", "assistant");
+        }
+
+        async function logout() {
+            await request("/api/logout", { method: "POST" }).catch(() => {});
+            setStatus("not_logged_in");
+            addSystem("已退出登录。");
+        }
+
+        function scrollToBottom() {
+            const messages = $("messages");
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        (async function init() {
             try {
-                const res = await fetch('/api/login/status', { credentials: 'include' });
-                const data = await res.json();
-                if (data.status === 'success') {
-                    showChatPage();
-                }
-            } catch (e) { /* ignore */ }
+                const body = await request("/api/login/status");
+                setStatus(body.status);
+                await checkHealth();
+            } catch {
+                setStatus("unknown");
+            }
         })();
     </script>
 </body>

@@ -23,6 +23,17 @@ interface UserSession {
         phone?: string | null;
         hasTotp?: boolean;
     };
+    pendingActions?: Map<string, PendingAction>;
+}
+
+export interface PendingAction {
+    token: string;
+    actionType: string;
+    payload: any;
+    summary: string;
+    risk: "low" | "medium" | "high";
+    createdAt: number;
+    expiresAt: number;
 }
 
 class SessionManager {
@@ -265,6 +276,48 @@ class SessionManager {
     getUserId(sessionId: string): string | null {
         const session = this.sessions.get(sessionId);
         return session?.userId || null;
+    }
+
+    createPendingAction(
+        sessionId: string,
+        action: Omit<PendingAction, "token" | "createdAt" | "expiresAt">,
+        ttlMs = 10 * 60 * 1000,
+    ): PendingAction {
+        const session = this.sessions.get(sessionId);
+        if (!session || !session.loginCompleted) {
+            throw new Error("会话不存在或尚未登录");
+        }
+        const now = Date.now();
+        const pendingAction: PendingAction = {
+            ...action,
+            token: crypto.randomUUID(),
+            createdAt: now,
+            expiresAt: now + ttlMs,
+        };
+        if (!session.pendingActions) {
+            session.pendingActions = new Map();
+        }
+        session.pendingActions.set(pendingAction.token, pendingAction);
+        return pendingAction;
+    }
+
+    listPendingActions(sessionId: string): PendingAction[] {
+        const session = this.sessions.get(sessionId);
+        if (!session?.pendingActions) return [];
+        const now = Date.now();
+        return [...session.pendingActions.values()].filter((action) => action.expiresAt > now);
+    }
+
+    consumePendingAction(sessionId: string, token: string): PendingAction | null {
+        const session = this.sessions.get(sessionId);
+        if (!session?.pendingActions) return null;
+        const action = session.pendingActions.get(token);
+        if (!action) return null;
+        session.pendingActions.delete(token);
+        if (action.expiresAt <= Date.now()) {
+            return null;
+        }
+        return action;
     }
 
     /**

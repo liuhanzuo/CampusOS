@@ -4,6 +4,14 @@ import { sessionManager } from "../session/session-manager";
 
 export const authRouter = Router();
 
+const saveSession = (req: any) =>
+    new Promise<void>((resolve, reject) => {
+        req.session.save((error: Error | undefined) => {
+            if (error) reject(error);
+            else resolve();
+        });
+    });
+
 authRouter.post("/api/login", async (req, res) => {
     const { userId, password } = req.body;
     if (!userId || !password) {
@@ -13,6 +21,7 @@ authRouter.post("/api/login", async (req, res) => {
     const sessionId = uuidv4();
     req.session.sessionId = sessionId;
     req.session.chatHistory = [];
+    await saveSession(req);
 
     console.log(`[API] POST /api/login - userId=${userId}, sessionId=${sessionId}`);
 
