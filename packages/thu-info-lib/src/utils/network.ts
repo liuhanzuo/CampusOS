@@ -25,13 +25,17 @@ const WEBVPN_HASH_TO_ORIGIN: { [hash: string]: { scheme: string; host: string; p
     "77726476706e69737468656265737421fdee49932a3526446d0187ab9040227bca90a6e14cc9": {
         scheme: "http", host: "myhome.tsinghua.edu.cn", port: "80",
     },
+    // reserves.lib.tsinghua.edu.cn:80 - 教参平台
+    "77726476706e69737468656265737421e2f2529935266d43300480aed641303c455d43259619a3eaf6eebb99": {
+        scheme: "http", host: "reserves.lib.tsinghua.edu.cn", port: "80",
+    },
 };
 
 /**
  * 将 WebVPN hash URL 转换为 lb-auth/lbredirect URL
  * 例如: https://webvpn.tsinghua.edu.cn/https/HASH/path → https://oauth.tsinghua.edu.cn/lb-auth/lbredirect?scheme=https&host=xxx&port=443&uri=/path
  */
-const webvpnUrlToLbAuth = (webvpnUrl: string): string | null => {
+export const webvpnUrlToLbAuth = (webvpnUrl: string): string | null => {
     const match = /webvpn\.tsinghua\.edu\.cn\/(https?)\/([\da-f]+)(\/.*)/.exec(webvpnUrl);
     if (!match) return null;
     const hash = match[2];

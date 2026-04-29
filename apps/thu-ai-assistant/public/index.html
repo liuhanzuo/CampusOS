@@ -379,6 +379,88 @@
             margin: 0 0 10px;
         }
 
+        .tool-results {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #edf0ef;
+            display: grid;
+            gap: 8px;
+        }
+
+        .tool-result {
+            border-top: 1px solid #edf0ef;
+            padding: 9px 0 0;
+        }
+
+        .tool-result:first-child {
+            border-top: 0;
+            padding-top: 0;
+        }
+
+        .tool-result-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .tool-name {
+            min-width: 0;
+            font-size: 13px;
+            font-weight: 900;
+            color: #253833;
+            word-break: break-word;
+        }
+
+        .tool-status {
+            flex: 0 0 auto;
+            min-height: 24px;
+            border-radius: 12px;
+            padding: 0 8px;
+            display: inline-flex;
+            align-items: center;
+            border: 1px solid #b9cfc9;
+            background: var(--green-soft);
+            color: #24544b;
+            font-size: 12px;
+            font-weight: 900;
+        }
+
+        .tool-status.failed {
+            border-color: #e4b7ae;
+            background: var(--red-soft);
+            color: var(--bad);
+        }
+
+        .tool-fields {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 6px;
+        }
+
+        .tool-field {
+            min-width: 0;
+            padding: 2px 0;
+        }
+
+        .tool-field-key {
+            display: block;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 900;
+            margin-bottom: 3px;
+        }
+
+        .tool-field-value {
+            display: block;
+            color: var(--ink);
+            font-size: 13px;
+            font-weight: 800;
+            line-height: 1.35;
+            word-break: break-word;
+        }
+
         .composer {
             border-top: 1px solid var(--line);
             background: white;
@@ -1189,7 +1271,11 @@
                     body: JSON.stringify({ message }),
                 });
                 typing.remove();
-                addMessage(body.reply || "后端没有返回回复。", "assistant");
+                addMessage(body.reply || "后端没有返回回复。", "assistant", {
+                    actions: body.actions,
+                    toolResults: body.toolResults,
+                    actionResult: body.actionResult,
+                });
             } catch (error) {
                 typing.remove();
                 if (String(error.message).includes("请先登录")) setStatus("not_logged_in");
@@ -1217,7 +1303,7 @@
             return wrapper;
         }
 
-        function addMessage(content, role) {
+        function addMessage(content, role, details = {}) {
             const wrapper = document.createElement("div");
             wrapper.className = `message ${role}`;
             if (role === "user") {
@@ -1233,7 +1319,8 @@
                 body.className = "assistant-body";
                 body.innerHTML = renderMarkdown(parsed.cleanText);
                 card.appendChild(body);
-                renderActionCards(card, parsed);
+                renderActionCards(card, parsed, details);
+                renderToolResults(card, details);
                 if (parsed.hasSportsCaptcha) {
                     setTimeout(() => openSportsPanel(), 0);
                 }
@@ -1260,12 +1347,106 @@
             return { cleanText: cleanText.trim(), payUrls, openUrls, hasSportsCaptcha };
         }
 
+        function collectStructuredActions(parsed, details) {
+            const actions = [];
+            const push = (action) => {
+                if (!action || !action.type) return;
+                const key = JSON.stringify(action);
+                if (actions.some((item) => JSON.stringify(item) === key)) return;
+                actions.push(action);
+            };
+
+            (Array.isArray(details.actions) ? details.actions : []).forEach(push);
+            if (Array.isArray(details.actionResult?.actions)) {
+                details.actionResult.actions.forEach(push);
+            }
+            parsed.payUrls.forEach((url) => push({ type: "payment_qr", label: "支付二维码", url }));
+            parsed.openUrls.forEach((url) => push({ type: "open_url", label: "打开页面", url }));
+            if (parsed.hasSportsCaptcha) {
+                push({ type: "sports_captcha", label: "体育验证码辅助面板", panel: "current" });
+            }
+            return actions;
+        }
+
         function escapeHtml(text) {
             return text
                 .replace(/&/g, "&amp;")
                 .replace(/</g, "&lt;")
                 .replace(/>/g, "&gt;")
                 .replace(/"/g, "&quot;");
+        }
+
+        function asDisplayValue(value) {
+            if (value === undefined || value === null || value === "") return "无";
+            if (Array.isArray(value)) return `${value.length} 项`;
+            if (typeof value === "object") return Object.keys(value).length ? `${Object.keys(value).length} 个字段` : "空对象";
+            return String(value);
+        }
+
+        function collectToolFields(result) {
+            const fields = [];
+            const push = (key, value) => {
+                if (fields.length >= 8) return;
+                fields.push([key, asDisplayValue(value)]);
+            };
+            if (result.error) push("error", result.error);
+            if (result.message) push("message", result.message);
+            const data = result.data;
+            if (Array.isArray(data)) {
+                push("data", `${data.length} 项`);
+                const first = data.find((item) => item && typeof item === "object");
+                if (first) {
+                    Object.entries(first).slice(0, 5).forEach(([key, value]) => push(key, value));
+                }
+            } else if (data && typeof data === "object") {
+                Object.entries(data).slice(0, 7).forEach(([key, value]) => push(key, value));
+            } else if (data !== undefined && data !== null) {
+                push("data", data);
+            }
+            if (result.meta && typeof result.meta === "object") {
+                Object.entries(result.meta).slice(0, 4).forEach(([key, value]) => push(`meta.${key}`, value));
+            }
+            return fields;
+        }
+
+        function renderToolResults(card, details) {
+            const items = Array.isArray(details.toolResults) ? [...details.toolResults] : [];
+            if (details.actionResult) {
+                items.push({
+                    name: "confirm_pending_action",
+                    args: {},
+                    result: details.actionResult,
+                });
+            }
+            if (!items.length) return;
+
+            const section = document.createElement("div");
+            section.className = "tool-results";
+
+            items.slice(0, 4).forEach((item) => {
+                const result = item.result || {};
+                const fields = collectToolFields(result);
+                const node = document.createElement("div");
+                node.className = "tool-result";
+                const statusClass = result.success === false ? " failed" : "";
+                node.innerHTML = `
+                    <div class="tool-result-head">
+                        <span class="tool-name">${escapeHtml(item.name || "tool")}</span>
+                        <span class="tool-status${statusClass}">${escapeHtml(result.status || (result.success === false ? "error" : "ok"))}</span>
+                    </div>
+                    <div class="tool-fields">
+                        ${fields.map(([key, value]) => `
+                            <div class="tool-field">
+                                <span class="tool-field-key">${escapeHtml(key)}</span>
+                                <span class="tool-field-value">${escapeHtml(value)}</span>
+                            </div>
+                        `).join("")}
+                    </div>
+                `;
+                section.appendChild(node);
+            });
+
+            card.appendChild(section);
         }
 
         function tryRenderJsonSummary(text) {
@@ -1410,36 +1591,37 @@
                 .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
         }
 
-        function renderActionCards(card, parsed) {
-            if (!parsed.payUrls.length && !parsed.openUrls.length && !parsed.hasSportsCaptcha) return;
+        function renderActionCards(card, parsed, details) {
+            const actions = collectStructuredActions(parsed, details);
+            if (!actions.length) return;
             const row = document.createElement("div");
             row.className = "action-row";
 
-            parsed.payUrls.forEach((url) => {
+            actions.filter((action) => action.type === "payment_qr" && action.url).forEach((action) => {
                 const item = document.createElement("div");
                 item.className = "action-card";
                 item.innerHTML = `<strong>支付订单</strong><p>Web 端可直接弹出二维码，手机扫码完成支付。</p>`;
                 const button = document.createElement("button");
                 button.className = "btn";
                 button.textContent = "查看二维码";
-                button.addEventListener("click", () => openPayModal(url));
+                button.addEventListener("click", () => openPayModal(action.url));
                 item.appendChild(button);
                 row.appendChild(item);
             });
 
-            parsed.openUrls.forEach((url) => {
+            actions.filter((action) => action.type === "open_url" && action.url).forEach((action) => {
                 const item = document.createElement("div");
                 item.className = "action-card";
                 item.innerHTML = `<strong>预约跳转</strong><p>打开真实预约页面，完成选择、验证码或最终提交。</p>`;
                 const button = document.createElement("button");
                 button.className = "btn secondary";
                 button.textContent = "打开页面";
-                button.addEventListener("click", () => window.open(url, "_blank", "noopener,noreferrer"));
+                button.addEventListener("click", () => window.open(action.url, "_blank", "noopener,noreferrer"));
                 item.appendChild(button);
                 row.appendChild(item);
             });
 
-            if (parsed.hasSportsCaptcha) {
+            if (actions.some((action) => action.type === "sports_captcha")) {
                 const item = document.createElement("div");
                 item.className = "action-card";
                 item.innerHTML = `<strong>体育验证码</strong><p>拉取后端 Selenium 当前页面截图，手动拖动轨迹后回放。</p>`;

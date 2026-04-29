@@ -4,6 +4,9 @@
  */
 import { InfoHelper } from "@thu-info/lib";
 import { CardRechargeType } from "@thu-info/lib/src/models/card/recharge";
+import { PHYSICAL_EXAM_URL } from "@thu-info/lib/src/constants/strings";
+import { roamingWrapperWithMocks } from "@thu-info/lib/src/lib/core";
+import { uFetch } from "@thu-info/lib/src/utils/network";
 import dayjs from "dayjs";
 
 // 体育场馆 ID 信息（从 thu-info-lib 中提取）
@@ -236,6 +239,188 @@ export async function getLibraryInfo(helper: InfoHelper) {
     }
 }
 
+const normalizeLibraryText = (value: unknown) =>
+    String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, "");
+
+const libraryBaseToJson = (item: any) => ({
+    id: item.id,
+    name: item.zhName || item.enName,
+    zhName: item.zhName,
+    enName: item.enName,
+    zhNameTrace: item.zhNameTrace,
+    enNameTrace: item.enNameTrace,
+    valid: item.valid,
+});
+
+const sameLibraryItem = (item: any, target?: string | number) => {
+    if (target === undefined || target === null || target === "") return false;
+    const targetText = normalizeLibraryText(target);
+    return String(item.id) === String(target) ||
+        [item.zhName, item.enName, item.zhNameTrace, item.enNameTrace]
+            .map(normalizeLibraryText)
+            .filter(Boolean)
+            .some((candidate) =>
+                candidate === targetText ||
+                candidate.includes(targetText) ||
+                targetText.includes(candidate),
+            );
+};
+
+export async function getLibraryFloorInfo(
+    helper: InfoHelper,
+    library?: string | number,
+    dateChoice: 0 | 1 = 0,
+) {
+    try {
+        const libraries = await helper.getLibraryList();
+        const targetLibrary = libraries.find((item: any) => sameLibraryItem(item, library));
+        if (!targetLibrary) {
+            return {
+                success: false,
+                status: "library_not_found",
+                error: "没有找到对应图书馆，请先调用 get_library 获取图书馆列表。",
+                candidates: libraries.map(libraryBaseToJson),
+            };
+        }
+        const floors = await helper.getLibraryFloorList(targetLibrary, dateChoice);
+        return {
+            success: true,
+            data: {
+                library: libraryBaseToJson(targetLibrary),
+                dateChoice,
+                floors: floors.map(libraryBaseToJson),
+            },
+        };
+    } catch (e: any) {
+        return { success: false, error: e.message || "获取图书馆楼层失败" };
+    }
+}
+
+export async function getLibrarySectionInfo(
+    helper: InfoHelper,
+    library?: string | number,
+    floor?: string | number,
+    dateChoice: 0 | 1 = 0,
+) {
+    try {
+        const libraries = await helper.getLibraryList();
+        const targetLibrary = libraries.find((item: any) => sameLibraryItem(item, library));
+        if (!targetLibrary) {
+            return {
+                success: false,
+                status: "library_not_found",
+                error: "没有找到对应图书馆，请先调用 get_library 获取图书馆列表。",
+                candidates: libraries.map(libraryBaseToJson),
+            };
+        }
+        const floors = await helper.getLibraryFloorList(targetLibrary, dateChoice);
+        const targetFloor = floors.find((item: any) => sameLibraryItem(item, floor));
+        if (!targetFloor) {
+            return {
+                success: false,
+                status: "floor_not_found",
+                error: "没有找到对应楼层，请先调用 get_library_floors 获取楼层列表。",
+                library: libraryBaseToJson(targetLibrary),
+                candidates: floors.map(libraryBaseToJson),
+            };
+        }
+        const sections = await helper.getLibrarySectionList(targetFloor, dateChoice);
+        return {
+            success: true,
+            data: {
+                library: libraryBaseToJson(targetLibrary),
+                floor: libraryBaseToJson(targetFloor),
+                dateChoice,
+                sections: sections.map((section: any) => ({
+                    ...libraryBaseToJson(section),
+                    total: section.total,
+                    available: section.available,
+                    posX: section.posX,
+                    posY: section.posY,
+                })),
+            },
+        };
+    } catch (e: any) {
+        return { success: false, error: e.message || "获取图书馆区域失败" };
+    }
+}
+
+export async function getLibrarySeatInfo(
+    helper: InfoHelper,
+    library?: string | number,
+    floor?: string | number,
+    section?: string | number,
+    dateChoice: 0 | 1 = 0,
+) {
+    try {
+        const libraries = await helper.getLibraryList();
+        const targetLibrary = libraries.find((item: any) => sameLibraryItem(item, library));
+        if (!targetLibrary) {
+            return {
+                success: false,
+                status: "library_not_found",
+                error: "没有找到对应图书馆，请先调用 get_library 获取图书馆列表。",
+                candidates: libraries.map(libraryBaseToJson),
+            };
+        }
+        const floors = await helper.getLibraryFloorList(targetLibrary, dateChoice);
+        const targetFloor = floors.find((item: any) => sameLibraryItem(item, floor));
+        if (!targetFloor) {
+            return {
+                success: false,
+                status: "floor_not_found",
+                error: "没有找到对应楼层，请先调用 get_library_floors 获取楼层列表。",
+                library: libraryBaseToJson(targetLibrary),
+                candidates: floors.map(libraryBaseToJson),
+            };
+        }
+        const sections = await helper.getLibrarySectionList(targetFloor, dateChoice);
+        const targetSection = sections.find((item: any) => sameLibraryItem(item, section));
+        if (!targetSection) {
+            return {
+                success: false,
+                status: "section_not_found",
+                error: "没有找到对应区域，请先调用 get_library_sections 获取区域列表。",
+                library: libraryBaseToJson(targetLibrary),
+                floor: libraryBaseToJson(targetFloor),
+                candidates: sections.map((item: any) => ({
+                    ...libraryBaseToJson(item),
+                    total: item.total,
+                    available: item.available,
+                })),
+            };
+        }
+        const seats = await helper.getLibrarySeatList(targetSection, dateChoice);
+        return {
+            success: true,
+            data: {
+                library: libraryBaseToJson(targetLibrary),
+                floor: libraryBaseToJson(targetFloor),
+                section: {
+                    ...libraryBaseToJson(targetSection),
+                    total: targetSection.total,
+                    available: targetSection.available,
+                },
+                dateChoice,
+                seats: seats.slice(0, 200).map((seat: any) => ({
+                    ...libraryBaseToJson(seat),
+                    type: seat.type,
+                    socketStatus: seat.status,
+                })),
+                meta: {
+                    count: seats.length,
+                    returned: Math.min(seats.length, 200),
+                },
+            },
+        };
+    } catch (e: any) {
+        return { success: false, error: e.message || "获取图书馆座位失败" };
+    }
+}
+
 /**
  * 获取新闻列表
  */
@@ -263,6 +448,71 @@ export async function getNewsInfo(helper: InfoHelper, keyword?: string) {
     }
 }
 
+export async function getNewsDetailInfo(helper: InfoHelper, url: string) {
+    try {
+        const [title, content, abstract] = await helper.getNewsDetail(url);
+        return {
+            success: true,
+            data: {
+                title,
+                abstract,
+                content: content.length > 6000 ? `${content.slice(0, 6000)}...` : content,
+                truncated: content.length > 6000,
+            },
+        };
+    } catch (e: any) {
+        return { success: false, error: e.message || "获取新闻详情失败" };
+    }
+}
+
+export async function getNewsSubscriptionsInfo(helper: InfoHelper) {
+    try {
+        const subscriptions = await helper.getNewsSubscriptionList();
+        return {
+            success: true,
+            data: subscriptions.map((item: any) => ({
+                id: item.id,
+                title: item.title,
+                keyword: item.keyword,
+                channel: item.channel,
+                source: item.source,
+                order: item.order,
+            })),
+            meta: {
+                count: subscriptions.length,
+            },
+        };
+    } catch (e: any) {
+        return { success: false, error: e.message || "获取新闻订阅失败" };
+    }
+}
+
+export async function getNewsFavoritesInfo(helper: InfoHelper, page = 1) {
+    try {
+        const [items, totalPages] = await helper.getFavorNewsList(page);
+        return {
+            success: true,
+            data: items.map((item: any) => ({
+                title: item.name,
+                id: item.xxid,
+                url: item.url,
+                date: item.date,
+                source: item.source,
+                channel: item.channel,
+                topped: item.topped,
+                inFav: item.inFav,
+            })),
+            meta: {
+                page,
+                totalPages,
+                count: items.length,
+            },
+        };
+    } catch (e: any) {
+        return { success: false, error: e.message || "获取新闻收藏失败" };
+    }
+}
+
 /**
  * 获取教学日历
  */
@@ -284,6 +534,29 @@ export async function getCalendarInfo(helper: InfoHelper) {
         };
     } catch (e: any) {
         return { success: false, error: e.message || "获取教学日历失败" };
+    }
+}
+
+export async function getSchoolCalendarImageInfo(
+    helper: InfoHelper,
+    year?: number,
+    semester: "spring" | "autumn" = "autumn",
+    lang: "zh" | "en" = "zh",
+) {
+    try {
+        const targetYear = year || await helper.getCalendarYear();
+        const imageUrl = await helper.getCalendarImageUrl(targetYear, semester, lang);
+        return {
+            success: true,
+            data: {
+                year: targetYear,
+                semester,
+                lang,
+                imageUrl,
+            },
+        };
+    } catch (e: any) {
+        return { success: false, error: e.message || "获取校历图片失败" };
     }
 }
 
@@ -445,6 +718,138 @@ export async function getDormScoreInfo(helper: InfoHelper) {
         };
     } catch (e: any) {
         return { success: false, error: e.message || "获取宿舍卫生成绩失败" };
+    }
+}
+
+export async function getPhysicalExamInfo(helper: InfoHelper) {
+    try {
+        const result = typeof (helper as any).mocked === "function"
+            ? await getPhysicalExamResultCompat(helper)
+            : await helper.getPhysicalExamResult();
+        return {
+            success: true,
+            data: result.map(([item, score]) => ({ item, score })),
+        };
+    } catch (e: any) {
+        return { success: false, error: e.message || "获取体测成绩失败" };
+    }
+}
+
+const physicalExamResultTotal = (json: any) =>
+    Number(json.fhltzfs) * 0.15 +
+    Number(json.wsmpfs) * 0.2 +
+    Number(json.zwtqqfs) * 0.1 +
+    Number(json.ldtyfs) * 0.1 +
+    Number(json.ytxsfs) * 0.1 +
+    Number(json.yqmpfs) * 0.2 +
+    Number(json.ywqzfs) * 0.1 +
+    Number(json.bbmpfs) * 0.2 +
+    Number(json.sgtzfs) * 0.15;
+
+const parsePhysicalExamPayload = (raw: string) => {
+    let text = raw.trim();
+    if (text.startsWith("(") && text.endsWith(")")) {
+        text = text.slice(1, -1).trim();
+    }
+    if (text.startsWith("{'") || text.includes("':'")) {
+        text = text.replace(/'/g, "\"");
+    }
+    return JSON.parse(text);
+};
+
+const physicalExamJsonToRows = (json: any): [string, string][] => {
+    if (json.success === "false" || json.success === false) {
+        return [["状态", "暂无可查成绩"]];
+    }
+    return [
+        ["是否免测", json.sfmc],
+        ["免测原因", json.mcyy],
+        ["总分", json.zf],
+        ["标准分", json.bzf],
+        ["附加分", json.fjf],
+        ["长跑附加分", json.cpfjf],
+        ["参考成绩（APP自动结算，仅供参考）", String(physicalExamResultTotal(json))],
+        ["身高", json.sg],
+        ["体重", json.tz],
+        ["身高体重分数", json.sgtzfs],
+        ["肺活量", json.fhl],
+        ["肺活量分数", json.fhltzfs],
+        ["800M跑", json.bbmp],
+        ["800M跑分数", json.bbmpfs],
+        ["1000M跑", json.yqmp],
+        ["1000M跑分数", json.yqmpfs],
+        ["50M跑", json.wsmp],
+        ["50M跑分数", json.wsmpfs],
+        ["立定跳远", json.ldty],
+        ["立定跳远分数", json.ldtyfs],
+        ["坐位体前屈", json.zwtqq],
+        ["坐位体前屈分数", json.zwtqqfs],
+        ["仰卧起坐", json.ywqz],
+        ["仰卧起坐分数", json.ywqzfs],
+        ["引体向上", json.ytxs],
+        ["引体向上分数", json.ytxsfs],
+        ["体育课成绩", json.tykcj],
+    ].map(([item, score]) => [item, score === undefined || score === null ? "" : String(score)]);
+};
+
+async function getPhysicalExamResultCompat(helper: InfoHelper): Promise<[string, string][]> {
+    return roamingWrapperWithMocks(
+        helper,
+        "default",
+        "8BF4F9A706589060488B6B6179E462E5",
+        () => uFetch(PHYSICAL_EXAM_URL).then((raw) => physicalExamJsonToRows(parsePhysicalExamPayload(raw))),
+        [["状态", "暂无可查成绩"]],
+    );
+}
+
+export async function getTeachingAssessmentListInfo(helper: InfoHelper) {
+    try {
+        const result = await helper.getAssessmentList();
+        return {
+            success: true,
+            data: result.map(([course, evaluated, url]) => ({
+                course,
+                evaluated,
+                url,
+            })),
+            meta: {
+                count: result.length,
+                unevaluatedCount: result.filter(([, evaluated]) => !evaluated).length,
+            },
+        };
+    } catch (e: any) {
+        return { success: false, error: e.message || "获取教学评估列表失败" };
+    }
+}
+
+export async function getInvoiceListInfo(helper: InfoHelper, page = 1) {
+    try {
+        const result = await helper.getInvoiceList(page);
+        return {
+            success: true,
+            data: result.data.map((invoice: any) => ({
+                uuid: invoice.uuid,
+                fileName: invoice.file_name,
+                date: invoice.inv_date,
+                amount: invoice.inv_amount ?? invoice.bill_amount,
+                taxAmount: invoice.tax_amount,
+                type: invoice.inv_typeStr || invoice.inv_type,
+                customerName: invoice.cust_name,
+                financialDeptName: invoice.financial_dept_name,
+                financialItemName: invoice.financial_item_name,
+                paymentItemTypeName: invoice.payment_item_type_name,
+                invoiceCode: invoice.inv_code,
+                invoiceNo: invoice.inv_no,
+                allowReimbursement: invoice.is_allow_reimbursement,
+            })),
+            meta: {
+                page,
+                count: result.count,
+                returned: result.data.length,
+            },
+        };
+    } catch (e: any) {
+        return { success: false, error: e.message || "获取发票列表失败" };
     }
 }
 
@@ -879,6 +1284,38 @@ export async function searchReservesLibraryInfo(helper: InfoHelper, keyword: str
     }
 }
 
+export async function getReservesLibraryDetailInfo(helper: InfoHelper, bookId: string) {
+    try {
+        const detail = await helper.getReservesLibBookDetail(bookId);
+        if (!detail) {
+            return {
+                success: false,
+                status: "not_found",
+                error: "没有找到对应教参详情。",
+            };
+        }
+        return {
+            success: true,
+            data: {
+                img: detail.img,
+                title: detail.title,
+                author: detail.author,
+                publisher: detail.publisher,
+                ISBN: detail.ISBN,
+                version: detail.version,
+                volume: detail.volume,
+                chapterCount: detail.chapters.length,
+                chapters: detail.chapters.slice(0, 50).map((chapter: any) => ({
+                    title: chapter.title,
+                    href: chapter.href,
+                })),
+            },
+        };
+    } catch (e: any) {
+        return { success: false, error: e.message || "获取教参详情失败" };
+    }
+}
+
 export async function getDegreeProgramInfo(helper: InfoHelper, full = false) {
     try {
         const result = full
@@ -918,6 +1355,63 @@ export async function getCourseRegistrationInfo(helper: InfoHelper, semesterId?:
         };
     } catch (e: any) {
         return { success: false, error: e.message || "获取选课信息失败" };
+    }
+}
+
+export async function searchCourseRegistrationCoursesInfo(
+    helper: InfoHelper,
+    args: {
+        semesterId: string;
+        id?: string;
+        name?: string;
+        dayOfWeek?: number;
+        period?: number;
+        page?: number;
+    },
+) {
+    try {
+        const result = await helper.searchCrCourses({
+            semester: args.semesterId,
+            id: args.id,
+            name: args.name,
+            dayOfWeek: args.dayOfWeek,
+            period: args.period,
+            page: args.page || 1,
+        });
+        return {
+            success: true,
+            data: {
+                currPage: result.currPage,
+                totalPage: result.totalPage,
+                totalCount: result.totalCount,
+                courses: result.courses.slice(0, 50).map((course: any) => ({
+                    department: course.department,
+                    id: course.id,
+                    seq: course.seq,
+                    name: course.name,
+                    credits: course.credits,
+                    teacher: course.teacher,
+                    time: course.time,
+                    capacity: course.capacity,
+                    remaining: course.remaining,
+                    queue: course.queue,
+                    bksCap: course.bksCap,
+                    yjsCap: course.yjsCap,
+                    note: course.note,
+                    feature: course.feature,
+                    year: course.year,
+                    secondary: course.secondary,
+                    restrict: course.restrict,
+                    culture: course.culture,
+                })),
+            },
+            meta: {
+                semesterId: args.semesterId,
+                returned: Math.min(result.courses.length, 50),
+            },
+        };
+    } catch (e: any) {
+        return { success: false, error: e.message || "搜索选课课程失败" };
     }
 }
 

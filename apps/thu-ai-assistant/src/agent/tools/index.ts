@@ -15,6 +15,7 @@ import { getSportsResourcesTool } from "./sports-resources.tool";
 import { getAvailableSportsVenuesTool } from "./sports-venues.tool";
 import { AgentTool } from "./types";
 import { confirmPendingActionTool, listPendingActionsTool } from "./pending-actions.tool";
+import { normalizeToolResult, toolError } from "./tool-result";
 
 const toolRegistry: AgentTool[] = [
     listCapabilitiesTool,
@@ -46,11 +47,11 @@ export async function executeTool(
     try {
         const tool = toolRegistry.find((item) => item.definition.function.name === toolName);
         if (!tool) {
-            return JSON.stringify({ error: `未知工具: ${toolName}` });
+            return JSON.stringify(toolError("unknown_tool", `未知工具: ${toolName}`));
         }
         const result = await tool.run({ helper, sessionId }, args);
-        return JSON.stringify(result);
+        return JSON.stringify(normalizeToolResult(result));
     } catch (e: any) {
-        return JSON.stringify({ error: e.message || "工具执行失败" });
+        return JSON.stringify(toolError("exception", e.message || "工具执行失败"));
     }
 }

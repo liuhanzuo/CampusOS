@@ -16,9 +16,6 @@ const formatActionReply = (result: any) => {
     const parts = [
         result.message || "动作已执行。",
         result.summary ? `\n\n${result.summary}` : "",
-        result.paymentMarker ? `\n\n${result.paymentMarker}` : "",
-        result.openUrlMarker ? `\n\n${result.openUrlMarker}` : "",
-        result.captchaPanelMarker ? `\n\n${result.captchaPanelMarker}` : "",
     ];
     return parts.filter(Boolean).join("");
 };
@@ -61,19 +58,19 @@ chatRouter.post("/api/chat", async (req, res) => {
             const reply = formatActionReply(result);
             history.push({ role: "assistant", content: reply });
             req.session.chatHistory = history.slice(-20);
-            return res.json({ reply, actionResult: result });
+            return res.json({ reply, actionResult: result, actions: result.actions || [] });
         }
 
         console.log(`[API] 调用AI，历史消息数: ${history.length}`);
         const startTime = Date.now();
-        const { reply, updatedMessages } = await chat(helper, history, sessionId);
+        const { reply, updatedMessages, toolResults, actions } = await chat(helper, history, sessionId);
 
         const elapsed = Date.now() - startTime;
         console.log(`[API] AI回复完成，耗时: ${elapsed}ms，回复长度: ${reply.length}`);
 
         req.session.chatHistory = updatedMessages.slice(-20);
 
-        return res.json({ reply });
+        return res.json({ reply, toolResults, actions });
     } catch (e: any) {
         console.error("[API] Chat Error:", e.message, e.stack);
         return res.status(500).json({
@@ -83,7 +80,13 @@ chatRouter.post("/api/chat", async (req, res) => {
 });
 
 chatRouter.post("/api/chat/clear", (req, res) => {
-    console.log("[API] POST /api/chat/clear");
+    const sessionId = req.session.sessionId;
+    console.log(`[API] POST /api/chat/clear - sessionId=${sessionId}`);
+
+    if (!sessionId || !sessionManager.isLoggedIn(sessionId)) {
+        return res.status(401).json({ error: "请先登录" });
+    }
+
     req.session.chatHistory = [];
     res.json({ status: "ok" });
 });

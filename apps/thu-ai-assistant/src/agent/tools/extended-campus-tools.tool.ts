@@ -7,12 +7,24 @@ import {
     getDormScoreInfo,
     getElectricityRecordsInfo,
     getGraduateIncomeInfo,
+    getInvoiceListInfo,
     getLibraryBookingRecordsInfo,
+    getLibraryFloorInfo,
     getLibraryRoomBookingRecordsInfo,
     getLibraryRoomResourcesInfo,
+    getLibrarySeatInfo,
+    getLibrarySectionInfo,
     getNetworkInfo,
+    getNewsDetailInfo,
+    getNewsFavoritesInfo,
+    getNewsSubscriptionsInfo,
     getOnlineDevicesInfo,
+    getPhysicalExamInfo,
+    getReservesLibraryDetailInfo,
+    getSchoolCalendarImageInfo,
+    searchCourseRegistrationCoursesInfo,
     getSportsBookingRecordsInfo,
+    getTeachingAssessmentListInfo,
     peekCourseScoreInfo,
     rechargeElectricityInfo,
     searchReservesLibraryInfo,
@@ -157,6 +169,48 @@ export const getDormScoreTool: AgentTool = {
     run: ({ helper }) => getDormScoreInfo(helper),
 };
 
+export const getPhysicalExamTool: AgentTool = {
+    definition: {
+        type: "function",
+        function: {
+            name: "get_physical_exam",
+            description: "查询体测成绩。",
+            parameters: { type: "object", properties: {}, required: [] },
+        },
+    },
+    run: ({ helper }) => getPhysicalExamInfo(helper),
+};
+
+export const getTeachingAssessmentListTool: AgentTool = {
+    definition: {
+        type: "function",
+        function: {
+            name: "get_teaching_assessment_list",
+            description: "查询教学评估/评教列表，只返回课程是否已评和表单链接，不自动提交评教。",
+            parameters: { type: "object", properties: {}, required: [] },
+        },
+    },
+    run: ({ helper }) => getTeachingAssessmentListInfo(helper),
+};
+
+export const getInvoiceListTool: AgentTool = {
+    definition: {
+        type: "function",
+        function: {
+            name: "get_invoice_list",
+            description: "查询电子发票列表。用于查看可下载/可报销发票记录，不直接返回 PDF 文件。",
+            parameters: {
+                type: "object",
+                properties: {
+                    page: { type: "number", description: "页码，默认 1。" },
+                },
+                required: [],
+            },
+        },
+    },
+    run: ({ helper }, args) => getInvoiceListInfo(helper, args.page || 1),
+};
+
 export const prepareResetDormPasswordTool: AgentTool = {
     definition: {
         type: "function",
@@ -177,6 +231,66 @@ export const prepareResetDormPasswordTool: AgentTool = {
         args.new_password ? "已收到新密码参数，等待确认协议开放后可执行改密。" : "需要用户提供新密码后才能准备改密。",
         "改密属于敏感操作，需要统一确认协议和二次确认 UI。",
     ),
+};
+
+export const getLibraryFloorsTool: AgentTool = {
+    definition: {
+        type: "function",
+        function: {
+            name: "get_library_floors",
+            description: "查询某个图书馆的楼层列表。先调用 get_library 获取图书馆 id 或名称。",
+            parameters: {
+                type: "object",
+                properties: {
+                    library: { type: "string", description: "图书馆 id 或名称，例如 北馆、文图、1。" },
+                    date_choice: { type: "number", enum: [0, 1], description: "0 表示今天，1 表示明天，默认 0。" },
+                },
+                required: ["library"],
+            },
+        },
+    },
+    run: ({ helper }, args) => getLibraryFloorInfo(helper, args.library, args.date_choice ?? 0),
+};
+
+export const getLibrarySectionsTool: AgentTool = {
+    definition: {
+        type: "function",
+        function: {
+            name: "get_library_sections",
+            description: "查询某个图书馆楼层下的阅览区/座位区域及余量。",
+            parameters: {
+                type: "object",
+                properties: {
+                    library: { type: "string", description: "图书馆 id 或名称。" },
+                    floor: { type: "string", description: "楼层 id 或名称。" },
+                    date_choice: { type: "number", enum: [0, 1], description: "0 表示今天，1 表示明天，默认 0。" },
+                },
+                required: ["library", "floor"],
+            },
+        },
+    },
+    run: ({ helper }, args) => getLibrarySectionInfo(helper, args.library, args.floor, args.date_choice ?? 0),
+};
+
+export const getLibrarySeatsTool: AgentTool = {
+    definition: {
+        type: "function",
+        function: {
+            name: "get_library_seats",
+            description: "查询某个图书馆区域的座位列表和插座状态。结果最多返回前 200 个座位。",
+            parameters: {
+                type: "object",
+                properties: {
+                    library: { type: "string", description: "图书馆 id 或名称。" },
+                    floor: { type: "string", description: "楼层 id 或名称。" },
+                    section: { type: "string", description: "区域 id 或名称。" },
+                    date_choice: { type: "number", enum: [0, 1], description: "0 表示今天，1 表示明天，默认 0。" },
+                },
+                required: ["library", "floor", "section"],
+            },
+        },
+    },
+    run: ({ helper }, args) => getLibrarySeatInfo(helper, args.library, args.floor, args.section, args.date_choice ?? 0),
 };
 
 export const getLibraryBookingRecordsTool: AgentTool = {
@@ -396,6 +510,92 @@ export const cancelSportsBookingTool: AgentTool = {
     ),
 };
 
+export const getNewsDetailTool: AgentTool = {
+    definition: {
+        type: "function",
+        function: {
+            name: "get_news_detail",
+            description: "根据新闻 URL 查询新闻正文详情。通常先调用 get_news 获取 URL。",
+            parameters: {
+                type: "object",
+                properties: {
+                    url: { type: "string", description: "新闻详情 URL。" },
+                },
+                required: ["url"],
+            },
+        },
+    },
+    run: ({ helper }, args) => getNewsDetailInfo(helper, args.url),
+};
+
+export const getNewsSubscriptionsTool: AgentTool = {
+    definition: {
+        type: "function",
+        function: {
+            name: "get_news_subscriptions",
+            description: "查询用户已关注的校内新闻订阅条件，包括关键词、栏目或来源。",
+            parameters: { type: "object", properties: {}, required: [] },
+        },
+    },
+    run: ({ helper }) => getNewsSubscriptionsInfo(helper),
+};
+
+export const getNewsFavoritesTool: AgentTool = {
+    definition: {
+        type: "function",
+        function: {
+            name: "get_news_favorites",
+            description: "查询用户收藏的校内新闻列表。",
+            parameters: {
+                type: "object",
+                properties: {
+                    page: { type: "number", description: "页码，默认 1。" },
+                },
+                required: [],
+            },
+        },
+    },
+    run: ({ helper }, args) => getNewsFavoritesInfo(helper, args.page || 1),
+};
+
+export const getSchoolCalendarImageTool: AgentTool = {
+    definition: {
+        type: "function",
+        function: {
+            name: "get_school_calendar_image",
+            description: "查询学校校历图片 URL。可指定学年、春秋季和语言。",
+            parameters: {
+                type: "object",
+                properties: {
+                    year: { type: "number", description: "学年起始年份，例如 2025 表示 2025-2026 学年。不填则查询最新学年。" },
+                    semester: { type: "string", enum: ["spring", "autumn"], description: "春季或秋季，默认 autumn。" },
+                    lang: { type: "string", enum: ["zh", "en"], description: "语言，默认 zh。" },
+                },
+                required: [],
+            },
+        },
+    },
+    run: ({ helper }, args) => getSchoolCalendarImageInfo(helper, args.year, args.semester || "autumn", args.lang || "zh"),
+};
+
+export const getReservesLibraryDetailTool: AgentTool = {
+    definition: {
+        type: "function",
+        function: {
+            name: "get_reserves_library_detail",
+            description: "根据教参平台 book_id 查询教参详情和章节列表。通常先调用 search_reserves_library 获取 book_id。",
+            parameters: {
+                type: "object",
+                properties: {
+                    book_id: { type: "string", description: "教参平台 bookId。" },
+                },
+                required: ["book_id"],
+            },
+        },
+    },
+    run: ({ helper }, args) => getReservesLibraryDetailInfo(helper, args.book_id),
+};
+
 export const getBankPaymentTool: AgentTool = {
     definition: {
         type: "function",
@@ -488,6 +688,36 @@ export const getCourseRegistrationInfoTool: AgentTool = {
     run: ({ helper }, args) => getCourseRegistrationInfo(helper, args.semester_id),
 };
 
+export const searchCourseRegistrationCoursesTool: AgentTool = {
+    definition: {
+        type: "function",
+        function: {
+            name: "search_course_registration_courses",
+            description: "搜索选课系统课程，返回开课信息、余量和排队人数。需要 semester_id；如果没有学期，请先调用 get_course_registration_info。",
+            parameters: {
+                type: "object",
+                properties: {
+                    semester_id: { type: "string", description: "选课学期 ID，例如 2025-2026-1。" },
+                    id: { type: "string", description: "课程号，可选。" },
+                    name: { type: "string", description: "课程名关键词，可选。" },
+                    day_of_week: { type: "number", description: "上课星期，1-7，可选。" },
+                    period: { type: "number", description: "上课节次，1-6，可选。" },
+                    page: { type: "number", description: "页码，默认 1。" },
+                },
+                required: ["semester_id"],
+            },
+        },
+    },
+    run: ({ helper }, args) => searchCourseRegistrationCoursesInfo(helper, {
+        semesterId: args.semester_id,
+        id: args.id,
+        name: args.name,
+        dayOfWeek: args.day_of_week,
+        period: args.period,
+        page: args.page || 1,
+    }),
+};
+
 export const getNetworkInfoTool: AgentTool = {
     definition: {
         type: "function",
@@ -572,7 +802,13 @@ export const extendedCampusTools: AgentTool[] = [
     getElectricityRecordsTool,
     prepareElectricityRechargeTool,
     getDormScoreTool,
+    getPhysicalExamTool,
+    getTeachingAssessmentListTool,
+    getInvoiceListTool,
     prepareResetDormPasswordTool,
+    getLibraryFloorsTool,
+    getLibrarySectionsTool,
+    getLibrarySeatsTool,
     getLibraryBookingRecordsTool,
     getLibraryRoomResourcesTool,
     getLibraryRoomBookingRecordsTool,
@@ -583,9 +819,15 @@ export const extendedCampusTools: AgentTool[] = [
     cancelSportsBookingTool,
     getBankPaymentTool,
     getGraduateIncomeTool,
+    getNewsDetailTool,
+    getNewsSubscriptionsTool,
+    getNewsFavoritesTool,
+    getSchoolCalendarImageTool,
     searchReservesLibraryTool,
+    getReservesLibraryDetailTool,
     getDegreeProgramTool,
     getCourseRegistrationInfoTool,
+    searchCourseRegistrationCoursesTool,
     getNetworkInfoTool,
     getOnlineDevicesTool,
     prepareNetworkDeviceActionTool,

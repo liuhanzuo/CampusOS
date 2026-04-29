@@ -51,6 +51,8 @@ const sportsFetch = async (url: string, method = "GET", body?: string): Promise<
 
     const headers: Record<string, string> = {
         "Content-Type": "application/json",
+        "x-api-version": "2.0.0",
+        "Language-Set": "zh_CN",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     };
     if (jwtToken) {
@@ -84,6 +86,8 @@ type SportsSceneRecord = PlainRecord & {
     sceneUuid?: string;
     uuid?: string;
     siteType?: string;
+    relatedType?: string;
+    sceneUseType?: string | number;
     classTypeUuid?: string;
     classTypeEnum?: string;
     siteKindId?: string | number;
@@ -163,6 +167,22 @@ const firstStatusText = (record: PlainRecord): string =>
         "remark",
     ]
         .map((key) => record[key])
+        .concat(
+            [
+                asRecord(record.reserveStatus),
+                asRecord(record.resvStatus),
+                asRecord(record.statusInfo),
+            ].flatMap((statusRecord) => statusRecord
+                ? [
+                    statusRecord.reserveStatus,
+                    statusRecord.reserveStatusReason,
+                    statusRecord.status,
+                    statusRecord.statusName,
+                    statusRecord.reason,
+                    statusRecord.message,
+                ]
+                : []),
+        )
         .filter((value) => value !== undefined && value !== null)
         .map((value) => String(value).trim().toLowerCase())
         .join(" ");
@@ -242,6 +262,31 @@ const hasExplicitSlotTime = (record: PlainRecord): boolean =>
         formatTimePart(record.startTime ?? record.reserveStartDate ?? record.beginTime ?? record.resvStartTime ?? record.reserveBeginTime ?? record.startDate),
     );
 
+const skippedResourceNestedKeys = new Set([
+    "openRule",
+    "openTime",
+    "fullOpenTime",
+    "reserveRule",
+    "earliestResvTime",
+    "latestCancelTime",
+    "resvTime",
+    "reserveStatus",
+    "resvStatus",
+    "statusInfo",
+    "supportPeriod",
+    "formRuleVo",
+    "feeRuleVo",
+    "reserveInfo",
+    "groupReserveStatus",
+    "ruleFeeDetails",
+    "ruleFeeDetailList",
+    "userFeeDetails",
+    "availableRange",
+    "availableRanges",
+    "availableRangeVo",
+    "availableRangeList",
+]);
+
 const collectResourceRecords = (value: unknown): PlainRecord[] => {
     type QueueItem = { value: unknown; context: PlainRecord };
     const queue: QueueItem[] = [{ value, context: {} }];
@@ -276,7 +321,7 @@ const collectResourceRecords = (value: unknown): PlainRecord[] => {
             "location",
         ]);
         const inheritedSiteId = firstString(record, ["siteUuid", "siteId", "siteNo", "resId"]);
-        if (inheritedField && !firstString(record, ["sceneName", "venueName"])) {
+        if (inheritedField) {
             context.fieldName = inheritedField;
         }
         if (inheritedSiteId) {
@@ -289,7 +334,10 @@ const collectResourceRecords = (value: unknown): PlainRecord[] => {
             results.push(merged);
         }
 
-        for (const nestedValue of Object.values(record)) {
+        for (const [nestedKey, nestedValue] of Object.entries(record)) {
+            if (skippedResourceNestedKeys.has(nestedKey)) {
+                continue;
+            }
             if (Array.isArray(nestedValue) || asRecord(nestedValue)) {
                 queue.push({ value: nestedValue, context });
             }
@@ -330,7 +378,7 @@ const normalizeResourceRecord = (record: PlainRecord): SportsResource | null => 
         "isAvailable",
         "isCanReserve",
         "enabled",
-    ]));
+    ]) ?? firstValue(asRecord(record.reserveStatus) || {}, ["reserveStatus", "status"]));
     const explicitLocked = asBoolean(firstValue(record, [
         "locked",
         "lock",
@@ -394,10 +442,11 @@ const normalizeResourceRecord = (record: PlainRecord): SportsResource | null => 
         record.orderInfo,
         record.currentReserve,
     ].some((value) => Array.isArray(value) ? value.length > 0 : Boolean(asRecord(value)));
-    const locked = explicitLocked === true || statusSaysBooked || nestedReservation;
+    const locked = explicitLocked === true || explicitBookable === false || statusSaysBooked || nestedReservation;
     const canNetBook = explicitBookable !== undefined
         ? explicitBookable && !locked && !bookingId
         : statusSaysBookable && !locked && !bookingId;
+    const userFeeDetails = asRecord(record.userFeeDetails);
 
     return {
         resId: firstString(record, ["resId", "siteUuid", "id", "uuid"]) || `${fieldName}-${timeSession}`,
@@ -407,7 +456,7 @@ const normalizeResourceRecord = (record: PlainRecord): SportsResource | null => 
         fieldName,
         overlaySize: asNumber(record.overlaySize ?? record.size) || 0,
         canNetBook,
-        cost: asNumber(record.cost ?? record.price ?? record.amount ?? record.money),
+        cost: asNumber(record.cost ?? record.price ?? record.amount ?? record.money ?? userFeeDetails?.chargingUnitPrice),
         locked,
         userType: firstString(record, ["userType", "siteType"]),
         paymentStatus: asBoolean(record.paymentStatus ?? record.paid),
@@ -508,7 +557,9 @@ const extractPhone = (apiData: PlainRecord): string =>
     firstString(apiData, ["phone", "mobile", "contactPhone", "cellPhone"]) || "";
 
 const extractCount = (apiData: PlainRecord, resources: SportsResource[]): number =>
-    asNumber(apiData.limit?.count ?? apiData.count ?? apiData.totalCount ?? apiData.total) ?? resources.length;
+    ((explicit) => explicit !== undefined && explicit > 0 ? explicit : resources.length)(
+        asNumber(apiData.limit?.count ?? apiData.count ?? apiData.totalCount ?? apiData.total),
+    );
 
 const extractInit = (apiData: PlainRecord, resources: SportsResource[]): number => {
     const explicit = asNumber(apiData.limit?.init ?? apiData.init);
@@ -606,11 +657,78 @@ const getSportsScenes = async (): Promise<SportsSceneRecord[]> => {
     return scenes;
 };
 
-const buildScenePagePayloads = (scene: SportsSceneRecord, date: string): PlainRecord[] => {
+const getSceneUuid = (scene: SportsSceneRecord): string | undefined => firstString(scene, ["sceneUuid", "uuid"]);
+
+const getSameLevelScene = async (scene: SportsSceneRecord): Promise<SportsSceneRecord> => {
+    const sceneUuid = getSceneUuid(scene);
+    if (!sceneUuid) return scene;
+
+    try {
+        const responseText = await sportsFetch(`${SPORTS_FRONTEND_API_BASE}/site/scene/sameLevel?uuid=${encodeURIComponent(sceneUuid)}`);
+        const apiData = parseSportsApiResponse(responseText, "site/scene/sameLevel");
+        const siteSceneList = asRecord(apiData.data)?.siteSceneList ?? apiData.siteSceneList;
+        const sceneList = Array.isArray(siteSceneList) ? siteSceneList : [];
+        const detailed = sceneList
+            .map((item) => asRecord(item))
+            .filter((item): item is PlainRecord => Boolean(item))
+            .find((item) => firstString(item, ["uuid", "sceneUuid"]) === sceneUuid);
+        return detailed ? {...scene, ...detailed} as SportsSceneRecord : scene;
+    } catch (e: any) {
+        console.log(`[Sports] site/scene/sameLevel 获取失败: ${e.message}`);
+        return scene;
+    }
+};
+
+const getSportsDevKinds = async (scene: SportsSceneRecord): Promise<PlainRecord[]> => {
+    const sceneUuid = firstString(scene, ["sceneUuid", "uuid"]);
+    if (!sceneUuid) return [];
+    try {
+        const responseText = await sportsFetch(`${SPORTS_FRONTEND_API_BASE}/site/devKind/list?uuid=${encodeURIComponent(sceneUuid)}`);
+        const apiData = parseSportsApiResponse(responseText, "site/devKind/list");
+        const list = Array.isArray(apiData.data) ? apiData.data : [];
+        return list.map((item) => asRecord(item)).filter((item): item is PlainRecord => Boolean(item));
+    } catch (e: any) {
+        console.log(`[Sports] site/devKind/list 获取失败: ${e.message}`);
+        return [];
+    }
+};
+
+const getSportsBuildings = async (scene: SportsSceneRecord): Promise<PlainRecord[]> => {
+    const sceneUuid = firstString(scene, ["sceneUuid", "uuid"]);
+    if (!sceneUuid) return [];
+    try {
+        const responseText = await sportsFetch(`${SPORTS_FRONTEND_API_BASE}/site/chooseByType?sceneUuid=${encodeURIComponent(sceneUuid)}&siteType=BUILDING`);
+        const apiData = parseSportsApiResponse(responseText, "site/chooseByType");
+        const list = Array.isArray(apiData.data) ? apiData.data : [];
+        return list.map((item) => asRecord(item)).filter((item): item is PlainRecord => Boolean(item));
+    } catch (e: any) {
+        console.log(`[Sports] site/chooseByType 获取失败: ${e.message}`);
+        return [];
+    }
+};
+
+const sceneUseTypeToValue = (sceneUseType: unknown): string | undefined => {
+    const value = asNumber(sceneUseType);
+    if (value === undefined) return typeof sceneUseType === "string" && sceneUseType.trim() ? sceneUseType : undefined;
+    if ((value & 1) === 1) return "NORMAL";
+    if ((value & 2) === 2) return "SPORT_GROUP";
+    if ((value & 4) === 4) return "SPORT_PERSON";
+    return undefined;
+};
+
+const buildScenePagePayloads = async (scene: SportsSceneRecord, date: string): Promise<PlainRecord[]> => {
     const sceneUuid = firstString(scene, ["sceneUuid", "uuid"]);
     if (!sceneUuid) {
         return [];
     }
+
+    const [devKinds, buildings] = await Promise.all([
+        getSportsDevKinds(scene),
+        getSportsBuildings(scene),
+    ]);
+    const devKindUuid = firstString(devKinds[0] || {}, ["uuid", "devKindUuid", "id"]);
+    const buildingUuid = firstString(buildings[0] || {}, ["uuid", "siteUuid", "id"]);
+    const sceneUseType = sceneUseTypeToValue(scene.sceneUseType);
 
     const basePayload: PlainRecord = {
         pageSize: 1000,
@@ -621,16 +739,28 @@ const buildScenePagePayloads = (scene: SportsSceneRecord, date: string): PlainRe
     const withSceneMeta: PlainRecord = {...basePayload};
     const classTypeUuid = firstString(scene, ["classTypeUuid"]);
     const classTypeEnum = firstString(scene, ["classTypeEnum"]);
-    const siteType = firstString(scene, ["siteType"]);
+    const siteType = firstString(scene, ["siteType", "relatedType"]);
     const siteKindId = scene.siteKindId;
 
+    if (devKindUuid) withSceneMeta.devKindUuid = devKindUuid;
     if (classTypeUuid) withSceneMeta.classTypeUuid = classTypeUuid;
+    if (!classTypeUuid && buildingUuid) withSceneMeta.classTypeUuid = buildingUuid;
     if (classTypeEnum) withSceneMeta.classTypeEnum = classTypeEnum;
+    if (!classTypeEnum && buildingUuid) withSceneMeta.classTypeEnum = "BUILDING";
     if (siteType) withSceneMeta.siteType = siteType;
+    if (sceneUseType) withSceneMeta.sceneUseType = sceneUseType;
     if (siteKindId !== undefined && siteKindId !== null && `${siteKindId}` !== "") {
         withSceneMeta.siteKindId = siteKindId;
+    } else {
+        withSceneMeta.siteKindId = "";
     }
     withSceneMeta.searchValue = "";
+
+    if (devKindUuid || buildingUuid || sceneUseType) {
+        return [
+            {...withSceneMeta, resvKind: "CURRENT_RESERVE"},
+        ];
+    }
 
     return [
         {...withSceneMeta, resvKind: "CURRENT_RESERVE"},
@@ -641,7 +771,7 @@ const buildScenePagePayloads = (scene: SportsSceneRecord, date: string): PlainRe
 };
 
 const getCurrentReservePageData = async (scene: SportsSceneRecord, date: string): Promise<PlainRecord> => {
-    const payloads = buildScenePagePayloads(scene, date);
+    const payloads = await buildScenePagePayloads(scene, date);
     let lastError: any = null;
 
     for (const payload of payloads) {
@@ -659,6 +789,14 @@ const getCurrentReservePageData = async (scene: SportsSceneRecord, date: string)
         } catch (e: any) {
             lastError = e;
             console.log(`[Sports] reserve/current/page payload失败: ${e.message}`);
+            if (String(e.message || "").includes("over limit")) {
+                return {
+                    count: 0,
+                    data: [],
+                    message: "over limit",
+                    statusMessage: "不在当前可预约日期范围内。",
+                };
+            }
         }
     }
 
@@ -874,7 +1012,8 @@ export const getSportsResources = async (
                     const deduped = new Map<string, SportsResource>();
 
                     for (const scene of matchedScenes) {
-                        const apiData = await getCurrentReservePageData(scene, date);
+                        const detailedScene = await getSameLevelScene(scene);
+                        const apiData = await getCurrentReservePageData(detailedScene, date);
                         const resources = extractResourcesFromApiData(apiData);
                         totalCount += extractCount(apiData, resources);
                         totalInit += extractInit(apiData, resources);

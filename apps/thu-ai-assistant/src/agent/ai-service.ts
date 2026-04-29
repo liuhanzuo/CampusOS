@@ -3,6 +3,7 @@ import { callGLM } from "./llm-client";
 import { buildSystemPrompt } from "./prompt";
 import { ChatMessage, ChatResult } from "./types";
 import { executeTool } from "./tools";
+import { extractToolActions } from "./tools/tool-result";
 
 /**
  * 与 GLM4-Flash 进行对话
@@ -12,18 +13,22 @@ export async function chat(
     messages: ChatMessage[],
     sessionId?: string,
 ): Promise<ChatResult> {
-    const actionMarkers = new Set<string>();
+    const toolResults: ChatResult["toolResults"] = [];
+    const actions: NonNullable<ChatResult["actions"]> = [];
+    const actionKeys = new Set<string>();
 
-    const collectActionMarkers = (rawResult: string) => {
+    const collectToolResult = (toolName: string, args: Record<string, unknown>, rawResult: string) => {
         try {
             const result = JSON.parse(rawResult);
-            for (const key of ["paymentMarker", "openUrlMarker", "captchaPanelMarker"]) {
-                if (typeof result[key] === "string" && result[key].trim()) {
-                    actionMarkers.add(result[key].trim());
-                }
+            for (const action of extractToolActions(result)) {
+                const key = JSON.stringify(action);
+                if (actionKeys.has(key)) continue;
+                actionKeys.add(key);
+                actions.push(action);
             }
+            toolResults.push({ name: toolName, args, result });
         } catch {
-            // Tool results should be JSON, but marker collection is best-effort.
+            // Tool results should be JSON, but trace collection is best-effort.
         }
     };
 
@@ -64,7 +69,7 @@ export async function chat(
             console.log(`[AI] 调用工具: ${toolCall.function.name}`, JSON.stringify(args));
             const toolStart = Date.now();
             const result = await executeTool(helper, toolCall.function.name, args, sessionId);
-            collectActionMarkers(result);
+            collectToolResult(toolCall.function.name, args || {}, result);
             console.log(`[AI] 工具 ${toolCall.function.name} 耗时: ${Date.now() - toolStart}ms, 结果长度: ${result.length}`);
             
             // 打印结果摘要（前200字符）
@@ -85,16 +90,11 @@ export async function chat(
         assistantMessage = response.choices[0].message;
     }
 
-    let reply = assistantMessage.content || "抱歉，我暂时无法回答这个问题。";
-    for (const marker of actionMarkers) {
-        if (!reply.includes(marker)) {
-            reply += `\n\n${marker}`;
-        }
-    }
+    const reply = assistantMessage.content || "抱歉，我暂时无法回答这个问题。";
     console.log(`[AI] 最终回复长度: ${reply.length}, 工具调用轮次: ${iterations}`);
 
     // 更新消息历史（不包含 system prompt）
     const updatedMessages = [...messages, { role: "assistant" as const, content: reply }];
 
-    return { reply, updatedMessages };
+    return { reply, updatedMessages, toolResults, actions };
 }
