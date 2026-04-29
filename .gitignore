@@ -61,6 +61,14 @@ apps/thu-ai-assistant/.cookies/
 apps/thu-ai-assistant/dist/
 apps/thu-ai-assistant/server*.log
 apps/thu-ai-assistant/screenshots/
+apps/thu-ai-assistant/tmp_*
+apps/thu-ai-assistant/tmp_bundle/
+apps/thu-ai-assistant/_debug_*/
+apps/thu-ai-assistant/debug-*.txt
+apps/thu-ai-assistant/debug-*.log
+apps/thu-ai-assistant/src/debug-*.ts
+apps/thu-ai-assistant/src/test-*.ts
+webresponse.txt
 
 # testing
 /coverage
