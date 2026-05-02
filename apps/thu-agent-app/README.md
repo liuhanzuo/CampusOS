@@ -36,13 +36,23 @@
    npm run agent:android
    ```
 
-Android 模拟器连接电脑本机后端时，App 内后端地址填：
+Android 真机通过 ADB reverse 连接电脑本机后端时，App 内后端地址填：
+
+```bash
+adb reverse tcp:3000 tcp:3000
+```
+
+```text
+http://127.0.0.1:3000
+```
+
+Android 模拟器连接电脑本机后端时，App 内后端地址改填：
 
 ```text
 http://10.0.2.2:3000
 ```
 
-真机调试时，填电脑的局域网 IP，例如：
+真机也可以不用 ADB reverse，改填电脑的局域网 IP，例如：
 
 ```text
 http://192.168.1.23:3000

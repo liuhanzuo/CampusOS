@@ -21,6 +21,170 @@ export const sportsIdInfoList = [
     { name: "西网球场", gymId: "5843934", itemId: "10120539" },
 ];
 
+const SPORTS_DIRECT_SITE_BASE = "https://www.sports.tsinghua.edu.cn/venue/site";
+
+const sportsApiFetch = async (path: string, method = "GET", body?: unknown) => {
+    const token = (globalThis as any).__sportsJwtToken;
+    if (!token) {
+        throw new Error("缺少体育系统 token，请先查询一次体育余量以完成体育系统登录。");
+    }
+
+    const response = await fetch(`${SPORTS_DIRECT_SITE_BASE}${path}`, {
+        method,
+        headers: {
+            "Content-Type": "application/json",
+            "x-api-version": "2.0.0",
+            "Language-Set": "zh_CN",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            token,
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const text = await response.text();
+    let parsed: any;
+    try {
+        parsed = JSON.parse(text);
+    } catch {
+        parsed = { raw: text };
+    }
+    if (!response.ok) {
+        throw new Error(`体育接口 ${path} HTTP ${response.status}: ${text.slice(0, 200)}`);
+    }
+    const code = parsed?.code === undefined ? undefined : Number(parsed.code);
+    if (parsed?.success === false || (code !== undefined && code !== 0 && code !== 200)) {
+        throw new Error(parsed?.message || parsed?.msg || `体育接口 ${path} 返回失败`);
+    }
+    return parsed;
+};
+
+const normalizeSportsDateValue = (value: unknown, fallbackDate: string) => {
+    const text = String(value || "").trim();
+    if (/^\d{8}$/.test(text)) {
+        return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}`;
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+    return fallbackDate;
+};
+
+const normalizePayType = (payType: unknown) => {
+    const value = Number(payType);
+    if ((value & 2) === 2 && (value & 1) !== 1) return "PAY_OFFLINE";
+    return "PAY_ONLINE";
+};
+
+const publicSportsField = (resource: any) => ({
+    fieldName: resource.fieldName,
+    timeSession: resource.timeSession,
+    cost: resource.cost || 0,
+    canBook: Boolean(resource.canNetBook && !resource.bookId),
+    siteUuid: resource.siteUuid,
+    sessionDetailUuid: resource.sessionDetailUuid,
+});
+
+const findSportsVenueForBooking = (venueName: string) => {
+    const normalized = String(venueName || "").trim().toLowerCase();
+    const exact = sportsIdInfoList.find((item) => item.name.toLowerCase() === normalized);
+    if (exact) return exact;
+
+    const directional = sportsIdInfoList.find((item) =>
+        item.name.includes(venueName) || venueName.includes(item.name),
+    );
+    if (directional) return directional;
+
+    return sportsIdInfoList.find((item) =>
+        (venueName.includes("羽毛球") && item.name.includes("羽毛球")) ||
+        (venueName.includes("篮球") && item.name.includes("篮球")) ||
+        (venueName.includes("乒乓球") && item.name.includes("乒乓球")) ||
+        (venueName.includes("台球") && item.name.includes("台球")) ||
+        (venueName.includes("网球") && item.name.includes("网球")),
+    );
+};
+
+const sportsAvailabilityBlocker = (resources: any) => {
+    const data = Array.isArray(resources?.data) ? resources.data : [];
+    const statusCode = String(resources?.statusCode || "");
+    const statusMessage = String(resources?.statusMessage || resources?.message || "").trim();
+    if (data.length > 0 || !statusMessage) return null;
+    if (
+        statusCode === "not_open" ||
+        /不在当前可预约|未开放|不可预约|over limit/i.test(statusMessage)
+    ) {
+        return {
+            status: "booking_window_unavailable",
+            error: statusMessage,
+        };
+    }
+    if (statusCode === "unknown") {
+        return {
+            status: "availability_unconfirmed",
+            error: statusMessage,
+        };
+    }
+    return null;
+};
+
+const findAvailableSportsResource = async (
+    helper: InfoHelper,
+    venue: typeof sportsIdInfoList[number],
+    date: string,
+    timeSlot?: string,
+    fieldName?: string,
+) => {
+    const resources = await helper.getSportsResources(venue.gymId, venue.itemId, date);
+    const available = resources.data.filter((resource: any) => resource.canNetBook && !resource.bookId);
+    const matched = available.filter((resource: any) =>
+        (!timeSlot || resource.timeSession === timeSlot) &&
+        (!fieldName || resource.fieldName === fieldName || String(resource.fieldName || "").includes(fieldName)),
+    );
+    return {
+        resources,
+        available,
+        candidates: (timeSlot || fieldName ? matched : available).slice(0, 20),
+        selected: (timeSlot || fieldName ? matched : available)[0],
+    };
+};
+
+const classifySportsSubmitError = (message: string) => {
+    if (/SCENE_UUID_NOT_EMPTY/i.test(message)) {
+        return {
+            status: "invalid_payload",
+            error: "提交体育预约缺少场景 ID(sceneUuid)，请重新查询空位后再确认。",
+        };
+    }
+    if (/COMMON_TIME_RANGE_EMPTY/i.test(message)) {
+        return {
+            status: "invalid_payload",
+            error: "提交体育预约缺少有效预约时间段，请重新查询空位后再确认。",
+        };
+    }
+    if (/RESERVE_SITE_NOT_EMPTY|场地.*(已被|占用)|已不可预约|已被预约/i.test(message)) {
+        return {
+            status: "slot_unavailable",
+            error: "提交时体育系统返回该场地/时段已被占用，请重新查询并选择新的空位。",
+        };
+    }
+    if (/captcha|验证码|verify/i.test(message)) {
+        return {
+            status: "captcha_required_or_failed",
+            error: message,
+        };
+    }
+    return {
+        status: "failed",
+        error: message || "提交体育预约失败",
+    };
+};
+
+const isSportsCaptchaRequired = async () => {
+    try {
+        const result = await sportsApiFetch("/api/reserve/enableValidCode");
+        return Boolean(Number(result?.data?.sysValue || 0) & 1);
+    } catch (e: any) {
+        console.log(`[Sports] 查询验证码开关失败，继续尝试提交: ${e.message}`);
+        return false;
+    }
+};
+
 /**
  * 获取课表信息
  */
@@ -139,6 +303,246 @@ export async function getSportsResourceInfo(
         return { success: true, data: results };
     } catch (e: any) {
         return { success: false, error: e.message || "查询体育场馆失败" };
+    }
+}
+
+export async function resolveSportsBookingCandidateInfo(
+    helper: InfoHelper,
+    venueName: string,
+    date: string,
+    timeSlot?: string,
+    fieldName?: string,
+) {
+    const venue = findSportsVenueForBooking(venueName);
+    if (!venue) {
+        return {
+            success: false,
+            status: "venue_not_found",
+            error: `没有找到匹配的体育场馆：${venueName}`,
+            candidates: sportsIdInfoList.map((item) => item.name),
+        };
+    }
+
+    try {
+        const { resources, available, candidates, selected } = await findAvailableSportsResource(
+            helper,
+            venue,
+            date,
+            timeSlot,
+            fieldName,
+        );
+        if (!selected) {
+            const blocker = available.length === 0 ? sportsAvailabilityBlocker(resources) : null;
+            if (blocker) {
+                return {
+                    success: false,
+                    status: blocker.status,
+                    error: `${venue.name} 在 ${date} 暂不能确认可预约空位：${blocker.error}`,
+                    data: {
+                        venue,
+                        date,
+                        requestedTimeSlot: timeSlot,
+                        requestedFieldName: fieldName,
+                        totalFieldRecords: resources.data.length,
+                        availableCount: available.length,
+                        statusCode: resources.statusCode || "unknown",
+                        statusMessage: blocker.error,
+                        candidates: [],
+                    },
+                };
+            }
+            return {
+                success: false,
+                status: "no_available_slot",
+                error: timeSlot
+                    ? `${venue.name} 在 ${date} 的 ${timeSlot} 暂无可预约空位。`
+                    : `${venue.name} 在 ${date} 暂无可预约空位。`,
+                data: {
+                    venue,
+                    date,
+                    requestedTimeSlot: timeSlot,
+                    requestedFieldName: fieldName,
+                    totalFieldRecords: resources.data.length,
+                    availableCount: available.length,
+                    candidates: available.slice(0, 20).map(publicSportsField),
+                },
+            };
+        }
+
+        return {
+            success: true,
+            status: "ok",
+            data: {
+                venue,
+                date,
+                selected,
+                candidates: candidates.map(publicSportsField),
+                availableCount: available.length,
+                totalFieldRecords: resources.data.length,
+            },
+        };
+    } catch (e: any) {
+        return { success: false, status: "error", error: e.message || "准备体育预约失败" };
+    }
+}
+
+export async function submitSportsBookingInfo(
+    helper: InfoHelper,
+    userId: string,
+    booking: any,
+    captchaVerification = "",
+) {
+    const venue = booking.venue;
+    const target = booking.resource;
+    if (!venue || !target) {
+        return { success: false, status: "invalid_payload", error: "待确认体育预约缺少场馆或时段信息。" };
+    }
+
+    try {
+        if (!captchaVerification && await isSportsCaptchaRequired()) {
+            return {
+                success: false,
+                status: "captcha_required_or_failed",
+                error: "体育系统当前要求滑块验证码。请打开真实预约页完成滑块，或在验证码通过后携带 captcha_verification 再确认提交。",
+            };
+        }
+
+        const { selected } = await findAvailableSportsResource(
+            helper,
+            venue,
+            booking.date,
+            target.timeSession,
+            target.fieldName,
+        );
+        if (!selected || selected.sessionDetailUuid !== target.sessionDetailUuid) {
+            return {
+                success: false,
+                status: "slot_unavailable",
+                error: "确认前复查发现该场地/时段已不可预约，请重新查询余量。",
+            };
+        }
+
+        const missingFields = [
+            ["sceneUuid", selected.sceneUuid],
+            ["siteUuid", selected.siteUuid],
+            ["siteType", selected.siteType],
+            ["sessionDetailUuid", selected.sessionDetailUuid],
+            ["beginTime", selected.beginTime],
+            ["endTime", selected.endTime],
+        ].filter(([, value]) => value === undefined || value === null || String(value).trim() === "");
+        if (missingFields.length > 0) {
+            return {
+                success: false,
+                status: "invalid_payload",
+                error: `提交体育预约缺少必要字段：${missingFields.map(([field]) => field).join(", ")}。请重新查询空位后再确认。`,
+            };
+        }
+
+        const beginDate = normalizeSportsDateValue(selected.beginDate, booking.date);
+        const endDate = normalizeSportsDateValue(selected.endDate, booking.date);
+        const timeRange = {
+            startTime: `${beginDate} ${selected.beginTime}:00`,
+            endTime: `${endDate} ${selected.endTime}:00`,
+        };
+        const siteSessionReserve = {
+            sessionDetailUuid: selected.sessionDetailUuid,
+            reserveTime: timeRange,
+        };
+        const addReservePayload = {
+            sceneUuid: selected.sceneUuid,
+            sceneUseType: selected.sceneUseType,
+            siteUuid: selected.siteUuid,
+            siteType: selected.siteType,
+            reserveTime: [timeRange],
+            siteSessionReserve: [siteSessionReserve],
+            resvMember: [userId],
+            resvKind: "CURRENT_RESERVE",
+            payType: booking.payType || normalizePayType(selected.payType),
+            purchaseUuid: booking.purchaseUuid || "",
+            formParam: {
+                formId: selected.formUuid || "",
+                deployUuid: "",
+                variables: {},
+                chooseCandidates: {},
+            },
+            captcha: captchaVerification,
+        };
+        const addResult = await sportsApiFetch("/api/reserve/addReserve", "POST", addReservePayload);
+        const resvIds = addResult?.data?.resvIds || (Array.isArray(addResult?.data) ? addResult.data : []);
+        const orderCheck = resvIds.length
+            ? await sportsApiFetch("/resv/order/check", "POST", { resvUuidList: resvIds, userId })
+            : null;
+
+        return {
+            success: true,
+            status: "executed",
+            data: {
+                venueName: venue.name,
+                date: booking.date,
+                fieldName: selected.fieldName,
+                timeSession: selected.timeSession,
+                cost: selected.cost || 0,
+                resvIds,
+                orderCheck: orderCheck?.data || null,
+                requiresPayment: Boolean(orderCheck?.data?.orderGenerated && !orderCheck?.data?.freeOrder),
+            },
+            message: orderCheck?.data?.orderGenerated && !orderCheck?.data?.freeOrder
+                ? "体育预约已提交，并生成待支付订单。"
+                : "体育预约已提交成功。",
+        };
+    } catch (e: any) {
+        const classified = classifySportsSubmitError(e.message || "");
+        return {
+            success: false,
+            status: classified.status,
+            error: classified.error,
+            rawError: e.message || undefined,
+        };
+    }
+}
+
+export async function cancelSportsBookingInfo(helper: InfoHelper, bookingId: string) {
+    const resvUuid = String(bookingId || "").trim();
+    if (!resvUuid) {
+        return { success: false, status: "invalid_payload", error: "缺少体育预约 ID。" };
+    }
+
+    try {
+        if (!(globalThis as any).__sportsJwtToken) {
+            await helper.getSportsReservationRecords();
+        }
+        const result = await sportsApiFetch("/api/reserve/cancelReserve", "POST", { resvUuid });
+        return {
+            success: true,
+            status: "executed",
+            data: {
+                bookingId: resvUuid,
+                result: result?.data ?? result,
+            },
+            message: "体育预约取消请求已提交。",
+        };
+    } catch (e: any) {
+        const primaryError = e.message || "体育预约取消失败";
+        try {
+            await helper.unsubscribeSportsReservation(resvUuid);
+            return {
+                success: true,
+                status: "executed",
+                data: {
+                    bookingId: resvUuid,
+                    fallback: "legacy_unsubscribe",
+                    primaryError,
+                },
+                message: "体育预约已通过旧版接口提交取消。",
+            };
+        } catch (fallbackError: any) {
+            return {
+                success: false,
+                status: "failed",
+                error: primaryError,
+                fallbackError: fallbackError.message || undefined,
+            };
+        }
     }
 }
 
@@ -418,6 +822,271 @@ export async function getLibrarySeatInfo(
         };
     } catch (e: any) {
         return { success: false, error: e.message || "获取图书馆座位失败" };
+    }
+}
+
+const findLibrarySeatBookingTarget = async (
+    helper: InfoHelper,
+    library?: string | number,
+    floor?: string | number,
+    section?: string | number,
+    seat?: string | number,
+    dateChoice: 0 | 1 = 0,
+) => {
+    const libraries = await helper.getLibraryList();
+    const targetLibrary = libraries.find((item: any) => sameLibraryItem(item, library));
+    if (!targetLibrary) {
+        return {
+            success: false,
+            status: "library_not_found",
+            error: "没有找到对应图书馆，请先调用 get_library 获取图书馆列表。",
+            candidates: libraries.map(libraryBaseToJson),
+        };
+    }
+
+    const floors = await helper.getLibraryFloorList(targetLibrary, dateChoice);
+    const targetFloor = floors.find((item: any) => sameLibraryItem(item, floor));
+    if (!targetFloor) {
+        return {
+            success: false,
+            status: "floor_not_found",
+            error: "没有找到对应楼层，请先调用 get_library_floors 获取楼层列表。",
+            library: libraryBaseToJson(targetLibrary),
+            candidates: floors.map(libraryBaseToJson),
+        };
+    }
+
+    const sections = await helper.getLibrarySectionList(targetFloor, dateChoice);
+    const targetSection = sections.find((item: any) => sameLibraryItem(item, section));
+    if (!targetSection) {
+        return {
+            success: false,
+            status: "section_not_found",
+            error: "没有找到对应区域，请先调用 get_library_sections 获取区域列表。",
+            library: libraryBaseToJson(targetLibrary),
+            floor: libraryBaseToJson(targetFloor),
+            candidates: sections.map((item: any) => ({
+                ...libraryBaseToJson(item),
+                total: item.total,
+                available: item.available,
+            })),
+        };
+    }
+
+    const seats = await helper.getLibrarySeatList(targetSection, dateChoice);
+    const availableSeats = seats.filter((item: any) => item.valid);
+    const targetSeat = seat === undefined || seat === null || String(seat).trim() === ""
+        ? availableSeats[0]
+        : availableSeats.find((item: any) => sameLibraryItem(item, seat));
+    if (!targetSeat) {
+        return {
+            success: false,
+            status: "seat_not_available",
+            error: seat
+                ? `没有找到可预约座位：${seat}。`
+                : "该区域当前没有可预约座位。",
+            data: {
+                library: libraryBaseToJson(targetLibrary),
+                floor: libraryBaseToJson(targetFloor),
+                section: {
+                    ...libraryBaseToJson(targetSection),
+                    total: targetSection.total,
+                    available: targetSection.available,
+                },
+                dateChoice,
+                availableSeats: availableSeats.slice(0, 20).map((item: any) => ({
+                    ...libraryBaseToJson(item),
+                    type: item.type,
+                    socketStatus: item.status,
+                })),
+                availableCount: availableSeats.length,
+            },
+        };
+    }
+
+    return {
+        success: true,
+        status: "ok",
+        data: {
+            library: libraryBaseToJson(targetLibrary),
+            floor: libraryBaseToJson(targetFloor),
+            section: {
+                ...libraryBaseToJson(targetSection),
+                total: targetSection.total,
+                available: targetSection.available,
+            },
+            seat: {
+                ...libraryBaseToJson(targetSeat),
+                type: targetSeat.type,
+                socketStatus: targetSeat.status,
+            },
+            rawSection: targetSection,
+            rawSeat: targetSeat,
+            dateChoice,
+            availableCount: availableSeats.length,
+            candidates: availableSeats.slice(0, 20).map((item: any) => ({
+                ...libraryBaseToJson(item),
+                type: item.type,
+                socketStatus: item.status,
+            })),
+        },
+    };
+};
+
+export async function resolveLibrarySeatBookingCandidateInfo(
+    helper: InfoHelper,
+    library?: string | number,
+    floor?: string | number,
+    section?: string | number,
+    seat?: string | number,
+    dateChoice: 0 | 1 = 0,
+) {
+    try {
+        const result = await findLibrarySeatBookingTarget(
+            helper,
+            library,
+            floor,
+            section,
+            seat,
+            dateChoice,
+        );
+        if (!result.success) return result;
+        const data = (result as any).data;
+        return {
+            success: true,
+            status: "ok",
+            data: {
+                library: data.library,
+                floor: data.floor,
+                section: data.section,
+                seat: data.seat,
+                dateChoice: data.dateChoice,
+                availableCount: data.availableCount,
+                candidates: data.candidates,
+            },
+        };
+    } catch (e: any) {
+        return { success: false, status: "error", error: e.message || "准备图书馆座位预约失败" };
+    }
+}
+
+export async function bookLibrarySeatInfo(
+    helper: InfoHelper,
+    booking: {
+        library?: string | number;
+        floor?: string | number;
+        section?: string | number;
+        seat?: string | number;
+        dateChoice?: 0 | 1;
+    },
+) {
+    try {
+        const dateChoice = booking.dateChoice ?? 0;
+        const result = await findLibrarySeatBookingTarget(
+            helper,
+            booking.library,
+            booking.floor,
+            booking.section,
+            booking.seat,
+            dateChoice,
+        );
+        if (!result.success) return result;
+
+        const data = (result as any).data;
+        const response = await helper.bookLibrarySeat(data.rawSeat, data.rawSection, dateChoice);
+        if (response?.status !== 1) {
+            return {
+                success: false,
+                status: "failed",
+                error: response?.msg || "图书馆座位预约提交失败。",
+                data: {
+                    library: data.library,
+                    floor: data.floor,
+                    section: data.section,
+                    seat: data.seat,
+                    dateChoice,
+                },
+            };
+        }
+
+        return {
+            success: true,
+            status: "executed",
+            data: {
+                library: data.library,
+                floor: data.floor,
+                section: data.section,
+                seat: data.seat,
+                dateChoice,
+                response,
+            },
+            message: "图书馆座位预约已提交成功。",
+        };
+    } catch (e: any) {
+        return { success: false, status: "error", error: e.message || "图书馆座位预约失败" };
+    }
+}
+
+export async function cancelLibraryBookingInfo(
+    helper: InfoHelper,
+    bookingId: string,
+    bookingType: "seat" | "room",
+) {
+    const id = String(bookingId || "").trim();
+    if (!id) {
+        return { success: false, status: "invalid_payload", error: "缺少图书馆预约 ID。" };
+    }
+    if (bookingType !== "seat" && bookingType !== "room") {
+        return { success: false, status: "invalid_payload", error: "预约类型必须是 seat 或 room。" };
+    }
+
+    try {
+        if (bookingType === "seat") {
+            const records = await helper.getBookingRecords();
+            const record = records.find((item: any) =>
+                String(item.id || "") === id ||
+                String(item.delId || "") === id ||
+                String(item.reserveId || "") === id ||
+                String(item.uuid || "") === id,
+            );
+            const cancelId = String((record as any)?.delId || id).trim();
+            if ((record as any)?.status && String((record as any).status).includes("取消")) {
+                return {
+                    success: true,
+                    status: "already_cancelled",
+                    data: {
+                        bookingId: id,
+                        cancelId,
+                        bookingType,
+                    },
+                    message: "该图书馆座位预约记录已经是取消状态。",
+                };
+            }
+            await helper.cancelBooking(cancelId);
+            return {
+                success: true,
+                status: "executed",
+                data: {
+                    bookingId: id,
+                    cancelId,
+                    bookingType,
+                },
+                message: "图书馆座位预约已取消。",
+            };
+        } else {
+            await helper.cancelLibraryRoomBooking(id);
+        }
+        return {
+            success: true,
+            status: "executed",
+            data: {
+                bookingId: id,
+                bookingType,
+            },
+            message: "图书馆研读间预约已取消。",
+        };
+    } catch (e: any) {
+        return { success: false, status: "failed", error: e.message || "图书馆预约取消失败" };
     }
 }
 
@@ -807,6 +1476,7 @@ export async function getTeachingAssessmentListInfo(helper: InfoHelper) {
         const result = await helper.getAssessmentList();
         return {
             success: true,
+            status: "ok",
             data: result.map(([course, evaluated, url]) => ({
                 course,
                 evaluated,
@@ -818,6 +1488,19 @@ export async function getTeachingAssessmentListInfo(helper: InfoHelper) {
             },
         };
     } catch (e: any) {
+        const message = e.message || "";
+        if (message.includes("现在不是填写问卷时间")) {
+            return {
+                success: true,
+                status: "not_open",
+                data: [],
+                meta: {
+                    count: 0,
+                    unevaluatedCount: 0,
+                    reason: "当前不是评教开放时间。",
+                },
+            };
+        }
         return { success: false, error: e.message || "获取教学评估列表失败" };
     }
 }
@@ -866,7 +1549,7 @@ export async function getLibraryRoomResourcesInfo(helper: InfoHelper, date?: str
     try {
         await helper.loginLibraryRoomBooking();
         const kinds = await helper.getLibraryRoomBookingInfoList();
-        if (!date || !kindId) {
+        if (!date) {
             return {
                 success: true,
                 status: "need_more_parameters",
@@ -881,13 +1564,57 @@ export async function getLibraryRoomResourcesInfo(helper: InfoHelper, date?: str
                         })),
                     })),
                 },
-                message: "已获取研读间类型。查询具体资源还需要 date(yyyyMMdd) 和 kind_id。",
+                message: "已获取研读间类型。查询具体资源还需要 date(yyyyMMdd)；可选 kind_id 用于缩小类型范围。",
             };
         }
 
-        const resources = await helper.getLibraryRoomBookingResourceList(date, kindId);
+        const targetDate = normalizeDateForLibraryRoom(date);
+        const targetKinds = kindId
+            ? kinds.filter((kind: any) => Number(kind.kindId) === Number(kindId))
+            : kinds;
+        if (targetKinds.length === 0) {
+            return {
+                success: false,
+                status: "kind_not_found",
+                error: `没有找到 kind_id=${kindId} 的研读间类型。`,
+                data: {
+                    kinds: kinds.map((kind: any) => ({
+                        kindId: kind.kindId ?? kind.id,
+                        kindName: kind.kindName ?? kind.name,
+                    })),
+                },
+            };
+        }
+
+        const resources = [];
+        const failedKinds = [];
+        for (const kind of targetKinds as any[]) {
+            try {
+                const list = await helper.getLibraryRoomBookingResourceList(targetDate, kind.kindId);
+                resources.push(...list);
+            } catch (e: any) {
+                failedKinds.push({
+                    kindId: kind.kindId,
+                    kindName: kind.kindName,
+                    error: e.message || "查询失败",
+                });
+            }
+        }
+        if (resources.length === 0 && failedKinds.length > 0) {
+            return {
+                success: false,
+                status: "all_kinds_failed",
+                error: "研读间资源查询失败，所有目标类型都没有返回可用结果。",
+                meta: {
+                    date: targetDate,
+                    kindCount: targetKinds.length,
+                    failedKinds,
+                },
+            };
+        }
         return {
             success: true,
+            status: failedKinds.length > 0 ? "partial" : "ok",
             data: resources.map((res: any) => ({
                 id: res.devId ?? res.id,
                 name: res.devName ?? res.name,
@@ -895,7 +1622,7 @@ export async function getLibraryRoomResourcesInfo(helper: InfoHelper, date?: str
                 kindName: res.kindName,
                 labName: res.labName,
                 roomName: res.roomName,
-                date,
+                date: targetDate,
                 minUser: res.minUser,
                 maxUser: res.maxUser,
                 minMinute: res.minMinute,
@@ -909,6 +1636,12 @@ export async function getLibraryRoomResourcesInfo(helper: InfoHelper, date?: str
                     owner: usage.owner,
                 })),
             })),
+            meta: {
+                date: targetDate,
+                kindCount: targetKinds.length,
+                roomCount: resources.length,
+                failedKinds,
+            },
         };
     } catch (e: any) {
         return { success: false, error: e.message || "获取研读间资源失败" };
@@ -926,6 +1659,13 @@ export async function getLibraryRoomBookingRecordsInfo(helper: InfoHelper) {
 }
 
 const normalizeDateForLibraryRoom = (date: string) => date.replace(/-/g, "");
+
+const normalizeLibraryRoomRecordDate = (value: unknown) => {
+    const text = String(value || "").trim();
+    if (/^\d{8}$/.test(text)) return text;
+    const parsed = dayjs(text);
+    return parsed.isValid() ? parsed.format("YYYYMMDD") : text.replace(/-/g, "");
+};
 
 const normalizeLibraryRoomTime = (date: string, time: string) => {
     const cleanDate = date.includes("-")
@@ -984,7 +1724,7 @@ const verifyLibraryRoomBooking = async (
 ) => {
     const records = await helper.getLibraryRoomBookingRecord();
     return records.find((record: any) =>
-        String(record.date) === targetDate &&
+        normalizeLibraryRoomRecordDate(record.date) === targetDate &&
         normalizeRoomText(record.devName) === normalizeRoomText(target.devName) &&
         sameMinute(new Date(record.begin), startDate) &&
         sameMinute(new Date(record.end), endDate),

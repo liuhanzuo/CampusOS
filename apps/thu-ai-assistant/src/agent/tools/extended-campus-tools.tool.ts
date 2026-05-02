@@ -14,6 +14,7 @@ import {
     getLibraryRoomResourcesInfo,
     getLibrarySeatInfo,
     getLibrarySectionInfo,
+    resolveLibrarySeatBookingCandidateInfo,
     getNetworkInfo,
     getNewsDetailInfo,
     getNewsFavoritesInfo,
@@ -27,8 +28,9 @@ import {
     getTeachingAssessmentListInfo,
     peekCourseScoreInfo,
     rechargeElectricityInfo,
+    resolveSportsBookingCandidateInfo,
+    bookLibrarySeatInfo,
     searchReservesLibraryInfo,
-    sportsIdInfoList,
 } from "../../services/thu/data-service";
 import { sessionManager } from "../../session/session-manager";
 import { AgentTool } from "./types";
@@ -48,19 +50,6 @@ const pendingAction = (
         "确认服务层接口稳定后，再开放真实执行。",
     ],
 });
-
-const findSportsVenue = (venueName: string) => {
-    const normalized = venueName.trim();
-    return sportsIdInfoList.find((venue) =>
-        venue.name.includes(normalized) ||
-        normalized.includes(venue.name) ||
-        (normalized.includes("羽毛球") && venue.name.includes("羽毛球")) ||
-        (normalized.includes("篮球") && venue.name.includes("篮球")) ||
-        (normalized.includes("乒乓球") && venue.name.includes("乒乓球")) ||
-        (normalized.includes("台球") && venue.name.includes("台球")) ||
-        (normalized.includes("网球") && venue.name.includes("网球"))
-    );
-};
 
 export const getCampusCardTransactionsTool: AgentTool = {
     definition: {
@@ -305,6 +294,88 @@ export const getLibraryBookingRecordsTool: AgentTool = {
     run: ({ helper }) => getLibraryBookingRecordsInfo(helper),
 };
 
+export const prepareLibrarySeatBookingTool: AgentTool = {
+    definition: {
+        type: "function",
+        function: {
+            name: "prepare_library_seat_booking",
+            description: "准备图书馆座位预约。座位预约只需要图书馆、楼层、区域、座位和今天/明天，不需要结束时间；用户确认后才会真实提交。",
+            parameters: {
+                type: "object",
+                properties: {
+                    library: { type: "string", description: "图书馆 id 或名称，例如 北馆、文图、1。" },
+                    floor: { type: "string", description: "楼层 id 或名称。" },
+                    section: { type: "string", description: "区域 id 或名称。" },
+                    seat: { type: "string", description: "可选，座位 id 或名称。不填则选择该区域第一个可预约座位。" },
+                    date_choice: { type: "number", enum: [0, 1], description: "0 表示今天，1 表示明天，默认 0。" },
+                },
+                required: ["library", "floor", "section"],
+            },
+        },
+    },
+    run: async ({ helper, sessionId }, args) => {
+        if (!sessionId) {
+            return { success: false, error: "缺少会话，无法创建待确认动作" };
+        }
+        const candidate = await resolveLibrarySeatBookingCandidateInfo(
+            helper,
+            args.library,
+            args.floor,
+            args.section,
+            args.seat,
+            args.date_choice ?? 0,
+        );
+        if (!candidate.success) {
+            return {
+                ...candidate,
+                action_type: "library_seat_booking",
+                next_actions: [
+                    "不要创建待确认动作。",
+                    "把候选区域或可预约座位告诉用户，让用户补充或更换座位后再试。",
+                ],
+            };
+        }
+
+        const data = (candidate as any).data;
+        const dateLabel = (args.date_choice ?? 0) === 1 ? "明天" : "今天";
+        const action = sessionManager.createPendingAction(sessionId, {
+            actionType: "library_seat_booking",
+            payload: {
+                library: data.library.id,
+                floor: data.floor.id,
+                section: data.section.id,
+                seat: data.seat.id,
+                dateChoice: data.dateChoice,
+            },
+            summary: `预约${dateLabel} ${data.library.name} ${data.floor.name} ${data.section.name} ${data.seat.name}`,
+            risk: "medium",
+        });
+        return {
+            success: true,
+            status: "awaiting_confirmation",
+            action_type: action.actionType,
+            selected: {
+                library: data.library,
+                floor: data.floor,
+                section: data.section,
+                seat: data.seat,
+                dateChoice: data.dateChoice,
+            },
+            candidates: data.candidates,
+            availableCount: data.availableCount,
+            summary: action.summary,
+            confirmation_token: action.token,
+            expires_at: new Date(action.expiresAt).toISOString(),
+            risk: action.risk,
+            next_actions: [
+                "请向用户复述图书馆、楼层、区域、座位和日期。",
+                "座位预约不需要结束时间。",
+                "只有用户明确说确认后，才调用 confirm_pending_action 提交真实预约。",
+            ],
+        };
+    },
+};
+
 export const getLibraryRoomResourcesTool: AgentTool = {
     definition: {
         type: "function",
@@ -315,7 +386,7 @@ export const getLibraryRoomResourcesTool: AgentTool = {
                 type: "object",
                 properties: {
                     date: { type: "string", description: "查询日期，格式 yyyyMMdd。不填则返回研读间类型。" },
-                    kind_id: { type: "number", description: "研读间类型 ID。不填则返回研读间类型。" },
+                    kind_id: { type: "number", description: "可选，研读间类型 ID。不填且提供 date 时查询所有类型。" },
                 },
                 required: [],
             },
@@ -421,10 +492,38 @@ export const cancelLibraryBookingTool: AgentTool = {
             },
         },
     },
-    run: async (_ctx, args) => pendingAction(
-        "cancel_library_booking",
-        `准备取消 ${args.booking_type} 预约：${args.booking_id}。`,
-    ),
+    run: async ({ sessionId }, args) => {
+        if (!sessionId) {
+            return { success: false, error: "缺少会话，无法创建待确认动作" };
+        }
+        const bookingId = String(args.booking_id || "").trim();
+        const bookingType = String(args.booking_type || "").trim();
+        if (!bookingId) {
+            return { success: false, status: "invalid_payload", error: "缺少图书馆预约 ID。" };
+        }
+        if (bookingType !== "seat" && bookingType !== "room") {
+            return { success: false, status: "invalid_payload", error: "预约类型必须是 seat 或 room。" };
+        }
+        const action = sessionManager.createPendingAction(sessionId, {
+            actionType: "cancel_library_booking",
+            payload: { bookingId, bookingType },
+            summary: `取消图书馆${bookingType === "seat" ? "座位" : "研读间"}预约：${bookingId}`,
+            risk: "medium",
+        });
+        return {
+            success: true,
+            status: "awaiting_confirmation",
+            action_type: action.actionType,
+            summary: action.summary,
+            confirmation_token: action.token,
+            expires_at: new Date(action.expiresAt).toISOString(),
+            risk: action.risk,
+            next_actions: [
+                "请向用户复述将取消的预约 ID 和类型。",
+                "只有用户明确说确认后，才调用 confirm_pending_action 执行真实取消。",
+            ],
+        };
+    },
 };
 
 export const getSportsBookingRecordsTool: AgentTool = {
@@ -444,46 +543,74 @@ export const prepareSportsBookingTool: AgentTool = {
         type: "function",
         function: {
             name: "prepare_sports_booking",
-            description: "准备体育场馆预约参数。MVP 中不自动下单，可引导用户打开真实预约页。",
+            description: "准备体育场馆真实预约。会先查询当前可预约余量，锁定具体场地/时段并生成待确认动作；不会直接下单。",
             parameters: {
                 type: "object",
                 properties: {
                     venue_name: { type: "string", description: "场馆名称。" },
                     date: { type: "string", description: "日期，YYYY-MM-DD。" },
                     time_slot: { type: "string", description: "时间段，例如 19:00-20:00。" },
+                    field_name: { type: "string", description: "可选，指定场地名称，例如 羽01、乒01。" },
                 },
                 required: ["venue_name", "date"],
             },
         },
     },
-    run: async ({ sessionId }, args) => {
+    run: async ({ helper, sessionId }, args) => {
         if (!sessionId) {
             return { success: false, error: "缺少会话，无法创建待确认动作" };
         }
-        const venue = findSportsVenue(args.venue_name);
+        const candidate = await resolveSportsBookingCandidateInfo(
+            helper,
+            args.venue_name,
+            args.date,
+            args.time_slot,
+            args.field_name,
+        );
+        if (!candidate.success) {
+            return {
+                ...candidate,
+                action_type: "sports_booking",
+                next_actions: [
+                    "不要创建待确认动作。",
+                    "把可选空位候选或无空位原因告诉用户，让用户更换日期、场馆或时段。",
+                ],
+            };
+        }
+        const data = (candidate as any).data;
+        const venue = data.venue;
+        const selected = data.selected;
         const action = sessionManager.createPendingAction(sessionId, {
-            actionType: "open_sports_booking_page",
+            actionType: "sports_booking",
             payload: {
-                venueName: args.venue_name,
+                venue,
                 date: args.date,
-                timeSlot: args.time_slot,
-                gymId: venue?.gymId,
-                itemId: venue?.itemId,
+                resource: selected,
+                payType: selected.payType === 2 ? "PAY_OFFLINE" : "PAY_ONLINE",
             },
-            summary: `打开 ${args.date} ${args.venue_name} 的真实体育预约页面${args.time_slot ? `，目标时段 ${args.time_slot}` : ""}`,
-            risk: "low",
+            summary: `预约 ${args.date} ${venue.name} ${selected.fieldName} ${selected.timeSession}`,
+            risk: "high",
         });
         return {
             success: true,
             status: "awaiting_confirmation",
             action_type: action.actionType,
+            selected: {
+                venueName: venue.name,
+                fieldName: selected.fieldName,
+                timeSession: selected.timeSession,
+                cost: selected.cost || 0,
+            },
+            candidates: data.candidates,
+            availableCount: data.availableCount,
             summary: action.summary,
             confirmation_token: action.token,
             expires_at: new Date(action.expiresAt).toISOString(),
             risk: action.risk,
             next_actions: [
-                "请用户确认是否打开真实预约页面。",
-                "确认后调用 confirm_pending_action；页面打开后用户手动完成验证码、时段选择和最终提交。",
+                "请向用户复述场馆、场地、日期、时段和费用。",
+                "只有用户明确说确认后，才调用 confirm_pending_action 提交真实预约。",
+                "如果提交接口要求验证码，工具会返回 captcha_required_or_failed，再引导用户打开真实预约页完成滑块。",
             ],
         };
     },
@@ -504,10 +631,34 @@ export const cancelSportsBookingTool: AgentTool = {
             },
         },
     },
-    run: async (_ctx, args) => pendingAction(
-        "cancel_sports_booking",
-        `准备取消体育预约：${args.booking_id}。`,
-    ),
+    run: async ({ sessionId }, args) => {
+        if (!sessionId) {
+            return { success: false, error: "缺少会话，无法创建待确认动作" };
+        }
+        const bookingId = String(args.booking_id || "").trim();
+        if (!bookingId) {
+            return { success: false, status: "invalid_payload", error: "缺少体育预约 ID。" };
+        }
+        const action = sessionManager.createPendingAction(sessionId, {
+            actionType: "cancel_sports_booking",
+            payload: { bookingId },
+            summary: `取消体育场馆预约：${bookingId}`,
+            risk: "high",
+        });
+        return {
+            success: true,
+            status: "awaiting_confirmation",
+            action_type: action.actionType,
+            summary: action.summary,
+            confirmation_token: action.token,
+            expires_at: new Date(action.expiresAt).toISOString(),
+            risk: action.risk,
+            next_actions: [
+                "请向用户复述将取消的体育预约 ID。",
+                "只有用户明确说确认后，才调用 confirm_pending_action 执行真实取消。",
+            ],
+        };
+    },
 };
 
 export const getNewsDetailTool: AgentTool = {
@@ -810,6 +961,7 @@ export const extendedCampusTools: AgentTool[] = [
     getLibrarySectionsTool,
     getLibrarySeatsTool,
     getLibraryBookingRecordsTool,
+    prepareLibrarySeatBookingTool,
     getLibraryRoomResourcesTool,
     getLibraryRoomBookingRecordsTool,
     prepareLibraryRoomBookingTool,

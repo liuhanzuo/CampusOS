@@ -1,0 +1,624 @@
+\documentclass[UTF8,a4paper,zihao=-4,fontset=none]{ctexart}
+
+\usepackage{geometry}
+\geometry{left=2.6cm,right=2.6cm,top=2.55cm,bottom=2.55cm}
+
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,calc,mindmap,trees}
+
+\setCJKmainfont{Songti SC}
+\setCJKsansfont{Heiti SC}
+\setCJKmonofont{Songti SC}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=black,
+  citecolor=black,
+  pdftitle={thu-ai-assistant 产品方案设计},
+  pdfauthor={清华大学}
+}
+
+\pagestyle{fancy}
+\setlength{\headheight}{15pt}
+\fancyhf{}
+\fancyhead[L]{\leftmark}
+\fancyhead[R]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+
+\titleformat{\section}{\centering\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries}{\thesubsubsection}{1em}{}
+\setlist[itemize]{leftmargin=2em,itemsep=0.25em,topsep=0.25em}
+\setlist[enumerate]{leftmargin=2.4em,itemsep=0.25em,topsep=0.25em}
+\captionsetup{labelsep=colon,font=small}
+\renewcommand{\figurename}{图}
+\renewcommand{\tablename}{表}
+
+\newcommand{\tool}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\api}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\status}[1]{\texttt{\detokenize{#1}}}
+
+\begin{document}
+
+\begin{titlepage}
+\centering
+\vspace*{1.4cm}
+{\zihao{2}\bfseries 清华 AI 校园助手\par}
+\vspace{0.55cm}
+{\zihao{3} thu-ai-assistant\par}
+\vspace{1.7cm}
+{\zihao{2}\bfseries 产品方案设计报告\par}
+\vspace{0.55cm}
+{\zihao{3}\bfseries 模块二：产品方案设计\par}
+\vfill
+{\zihao{3} 清华大学\par}
+\vspace{0.45cm}
+{\zihao{3} 2026 年春季学期\par}
+\vspace{1.0cm}
+{\zihao{3} 2026 年 5 月 2 日\par}
+\end{titlepage}
+
+\pagenumbering{arabic}
+\setcounter{page}{2}
+\tableofcontents
+\newpage
+
+\section{产品概述}
+
+Campus Agent（清华校园智能助手）是面向清华师生的对话式校园办事助手。
+产品以自然语言对话为核心，把课程表、成绩、校园卡、宿舍电费、体育场馆、
+图书馆、研读间、校内通知等校园能力封装为可由大模型调用的工具。用户只需
+说出目标，系统自动理解意图、调用工具、整理结果，并在充值、预约、取消等
+真实操作前要求用户确认。
+
+当前实现由两个主要工程组成：移动端 \tool{thu-agent-app} 和后端
+\tool{thu-ai-assistant}。移动端负责登录、对话、能力快捷入口、结果渲染和
+动作链接展示；后端负责会话管理、二次验证、工具调用循环、校园数据适配、
+待确认动作和体育预约浏览器自动化。底层校园系统能力复用
+\tool{@thu-info/lib}，从而与现有 \tool{thu-info-app} 的数据能力保持一致。
+
+\subsection{目标用户}
+
+产品的核心用户是清华大学在校学生，同时兼顾研究生、助教和需要频繁处理
+校园事务的校内工作人员。表 \ref{tab:user} 展示了主要用户画像。
+
+\begin{table}[H]
+\centering
+\caption{目标用户画像}
+\label{tab:user}
+\small
+\begin{tabularx}{\textwidth}{p{2.2cm}X X X}
+\toprule
+用户类型 & 典型需求 & 当前痛点 & 产品价值 \\
+\midrule
+本科生 & 查课表、查成绩、查体育场地、查校园卡余额 & 校园系统入口多，查询路径长，信息分散 & 用一句话完成跨系统查询，结果直接结构化展示 \\
+研究生 & 查收入、查研读间、查图书馆资源、查通知 & 研读间、财务、通知系统分散，操作频率高 & 将常用流程收敛到统一对话入口 \\
+住宿学生 & 查电费、查宿舍卫生成绩、查校园网设备 & 生活服务散落在不同页面，移动端操作繁琐 & 快速查询余额、记录和设备状态 \\
+重度校园 App 用户 & 同时使用课表、图书馆、体育、校园卡等功能 & 需要记住每个功能在哪、怎么填参数 & Agent 根据语义补齐流程，减少点击和记忆成本 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{用户痛点}
+
+产品要解决的核心痛点如下：
+
+\begin{enumerate}
+  \item \textbf{入口碎片化。} 课表、成绩、校园卡、体育场馆、图书馆、校园网等功能分布在不同系统或不同页面中，用户需要知道“去哪里查”。
+  \item \textbf{操作链路长。} 体育场馆预约、图书馆座位查询、研读间预约等任务需要多次选择日期、场馆、楼层、区域和时段。
+  \item \textbf{语义门槛高。} 用户自然表达通常是“明天羽毛球还有空位吗”“今天下午有什么课”，传统系统则要求用户转换成固定筛选条件。
+  \item \textbf{结果不易读。} 原始系统返回格式不统一，用户需要在多个页面之间比较可用时间、费用、状态和限制。
+  \item \textbf{真实动作风险高。} 充值、预约、取消预约、设备登录/登出等操作会产生资金、资源占用或账号状态变化，需要明确确认机制。
+\end{enumerate}
+
+\subsection{典型使用场景}
+
+\begin{table}[H]
+\centering
+\caption{典型使用场景}
+\label{tab:scenario}
+\small
+\begin{tabularx}{\textwidth}{p{2.7cm}p{4.2cm}X}
+\toprule
+场景 & 用户表达 & 系统行为 \\
+\midrule
+课表查询 & 今天下午有什么课？ & 调用课表工具，按星期和节次整理课程、地点与当前周次 \\
+体育余量查询 & 明天羽毛球场有没有空位？ & 匹配羽毛球相关场馆，查询日期余量，按场馆、场地、时段展示 \\
+校园卡查询 & 查一下我的校园卡余额 & 调用校园卡工具，返回余额、状态和过渡余额 \\
+校园卡充值 & 校园卡充 50 元 & 创建待确认动作，用户确认后才生成支付订单并返回二维码动作 \\
+图书馆座位 & 查北馆今天有哪些空座 & 按图书馆、楼层、区域逐步查询座位余量 \\
+研读间预约 & 帮我预约明天 10:00--11:00 的研读间 & 查询可用资源，生成待确认动作，确认后提交预约 \\
+校内通知 & 查一下最新校内通知 & 查询新闻通知列表，按标题、来源、日期结构化展示 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{核心功能}
+
+\subsection{对话式校园任务入口}
+
+\tool{thu-agent-app} 的第一屏即为 Agent 对话，而不是传统功能宫格。用户输入
+自然语言后，App 将消息发送到 \api{/api/chat}，由 \tool{thu-ai-assistant}
+判断意图、调用工具并生成结构化中文回复。
+
+当前移动端已实现后端地址配置、健康检查、登录态展示、二次验证输入、校园
+任务对话、快捷提示、Markdown 结果渲染、支付和预约动作链接渲染。Android
+模拟器默认连接 \api{http://10.0.2.2:3000}，真机调试时可填写电脑局域网 IP。
+
+\subsection{统一登录与二次验证}
+
+后端通过 \tool{session-manager.ts} 管理 \tool{InfoHelper} 实例和登录态。
+用户登录后，同一会话内所有工具复用已认证的 \tool{InfoHelper}，避免每次
+查询重复登录。登录流程包括创建 \tool{sessionId}、启动 \tool{helper.login()}、
+选择微信/短信/TOTP 二次验证、提交验证码、固定设备指纹、会话超时和登出。
+会话默认 2 小时超时。
+
+\subsection{校园能力目录}
+
+后端通过 \api{/api/capabilities} 暴露能力目录。该目录在产品侧不强调底层工具
+接口，而是用于告诉用户“现在可以稳定使用什么、哪些正在接入、哪些会在后续版本
+完善”。因此，能力目录更适合按版本成熟度划分，而不是逐项列出函数名称。表
+\ref{tab:capability-roadmap} 给出了当前产品能力规划。
+
+\begin{table}[H]
+\centering
+\caption{校园能力分阶段规划}
+\label{tab:capability-roadmap}
+\small
+\begin{tabularx}{\textwidth}{p{2.1cm}p{3.0cm}X X}
+\toprule
+阶段 & 能力定位 & 覆盖内容 & 产品说明 \\
+\midrule
+已经完成 & 可稳定演示与使用的核心查询能力 &
+课表查询、成绩与绩点查询、教学日历、教室查询、校园卡余额、宿舍电费余额、
+校内新闻通知、体育场馆余量查询、基础图书馆信息查询 &
+覆盖用户最高频的“查信息”场景，数据来自真实校园系统；Agent 负责理解意图、
+自动取数和结构化展示，是当前 MVP 的主要验收范围。 \\
+\midrule
+正在集成 & 已有底层能力或部分流程，正在补齐 Agent 闭环的校园事务能力 &
+校园卡充值、电费充值、体育场馆预约与取消、图书馆座位预约、研读间预约、
+校园网账号与在线设备、财务收入与发票、体测成绩、宿舍卫生成绩、选课信息与
+培养方案查询 &
+这部分能力已经具备不同程度的数据接口或流程验证，但涉及支付、预约、取消、
+验证码、敏感账号操作等真实动作，需要继续完善确认协议、异常处理和前端动作
+渲染。 \\
+\midrule
+计划完善 & 面向完整校园 Agent 的后续扩展能力 &
+选课/退课等强事务操作、评教提交、新闻订阅与收藏管理、饮水和洗衣等第三方
+生活服务、校园地图与路线、主动提醒、文档问答和个性化推荐 &
+这些能力需要更强的安全控制、权限边界、第三方系统适配或知识库支撑。后续将
+在稳定查询能力和确认协议成熟后逐步开放。 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{查询类工具}
+
+查询类工具的目标是“自动取数 + 结构化表达”。模型不直接编造结果，而是通过
+工具拿到后端 JSON，再按系统提示词规定的表格、列表或信息卡格式输出。课程表、
+成绩、体育场馆、校园卡、电费、图书馆、新闻、教室和校园网均属于这一类。
+
+\subsection{真实动作与确认机制}
+
+真实动作包括充值、预约、取消预约、支付、设备登录/登出等。产品采用
+“准备动作 $\rightarrow$ 用户确认 $\rightarrow$ 执行动作”的统一协议：
+
+\begin{enumerate}
+  \item 用户提出真实动作，例如“校园卡充 50 元”。
+  \item Agent 调用对应 prepare 工具，例如 \tool{recharge_campus_card}。
+  \item 工具创建 \tool{PendingAction}，返回 \tool{confirmation_token}、摘要、风险等级和过期时间。
+  \item Agent 向用户复述动作摘要和风险，请用户确认。
+  \item 用户明确回复“确认/执行/充值/确定”等表达。
+  \item \api{/api/chat} 检测确认意图后调用 \tool{confirm_pending_action}。
+  \item 后端执行真实动作，并通过 \tool{actions} 字段把支付二维码、打开链接或验证码面板交给前端渲染。
+\end{enumerate}
+
+该机制解决了 Agent 产品中最关键的安全问题：模型可以帮助用户准备操作，但
+不能在用户未确认时直接产生真实后果。
+
+\subsection{体育预约兜底能力}
+
+体育预约是当前实现中最复杂的场景。系统同时提供 API 查询路径和 Selenium
+交互路径：前者用于查询余量、筛选可预约场地、准备预约参数；后者用于打开
+真实预约页、复用登录态、处理滑块验证码和让用户完成最终确认。当直接提交
+预约遇到验证码或系统限制时，后端可打开真实体育预约页面，由用户在 Chrome
+窗口或验证码辅助面板中完成最后一步。
+
+\section{产品架构与功能图}
+
+\subsection{总体架构}
+
+图 \ref{fig:architecture} 展示了产品从移动端到后端、Agent、工具层和清华
+校内系统的整体结构。
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{
+\begin{tikzpicture}[
+  node distance=1.0cm and 1.3cm,
+  box/.style={draw,rounded corners,align=center,minimum width=2.8cm,minimum height=0.85cm,fill=white},
+  layer/.style={draw,rounded corners,inner sep=0.35cm,fill=gray!5},
+  arrow/.style={-{Latex[length=2.5mm]},thick}
+]
+\node[box,fill=blue!8] (user) {清华学生\\用户};
+\node[box,fill=green!8,right=of user] (app) {\tool{thu-agent-app}\\React Native 移动端};
+\node[box,fill=green!8,right=of app] (api) {\tool{thu-ai-assistant}\\Express API};
+\node[box,fill=yellow!12,above right=0.5cm and 1.1cm of api] (agent) {Agent Core\\工具调用循环};
+\node[box,fill=yellow!12,below right=0.5cm and 1.1cm of api] (session) {Session Manager\\登录/2FA/待确认动作};
+\node[box,fill=orange!12,right=1.3cm of agent] (llm) {LLM Client\\GLM API};
+\node[box,fill=orange!12,right=1.3cm of session] (tools) {Tool Registry\\校园工具函数};
+\node[box,fill=purple!10,right=1.3cm of tools] (data) {Data Service\\JSON 适配};
+\node[box,fill=purple!10,above=0.8cm of data] (selenium) {Selenium Service\\体育预约兜底};
+\node[box,fill=red!8,right=1.3cm of data] (lib) {\tool{@thu-info/lib}\\底层校园能力};
+\node[box,fill=red!8,right=1.3cm of lib] (campus) {清华校内系统\\课表/成绩/校园卡/图书馆/体育};
+\draw[arrow] (user) -- (app);
+\draw[arrow] (app) -- node[above]{HTTP + Cookie Session} (api);
+\draw[arrow] (api) -- (agent);
+\draw[arrow] (api) -- (session);
+\draw[arrow] (agent) -- (llm);
+\draw[arrow] (agent) -- (tools);
+\draw[arrow] (session) -- (tools);
+\draw[arrow] (tools) -- (data);
+\draw[arrow] (tools) -- (selenium);
+\draw[arrow] (data) -- (lib);
+\draw[arrow] (selenium) -- (campus);
+\draw[arrow] (lib) -- (campus);
+\end{tikzpicture}}
+\caption{Campus Agent 总体架构}
+\label{fig:architecture}
+\end{figure}
+
+\subsection{后端分层架构}
+
+图 \ref{fig:backend-layer} 按工程边界展示后端结构。接口层负责 HTTP API，
+编排层负责会话和 Agent 循环，工具层负责定义模型可调用函数，服务层负责
+适配清华系统和浏览器自动化。
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\textwidth}{!}{
+\begin{tikzpicture}[
+  box/.style={draw,rounded corners,align=center,minimum width=3.0cm,minimum height=0.75cm,fill=white},
+  layer/.style={draw,rounded corners,inner sep=0.35cm,fill=gray!4},
+  arrow/.style={-{Latex[length=2.2mm]},thick}
+]
+\node[box,fill=blue!8] (routes) at (0,0) {接口层 routes\\\api{/api/login}\\\api{/api/chat}\\\api{/api/sports/*}};
+\node[box,fill=green!8] (orchestration) at (4.2,0) {编排层 agent/session\\Session Manager\\AI Service\\Prompt};
+\node[box,fill=yellow!12] (tool) at (8.4,0) {工具层 agent/tools\\查询工具\\预约工具\\确认工具};
+\node[box,fill=orange!12] (service) at (12.6,0) {服务层 services\\Data Service\\Selenium Service};
+\node[box,fill=red!8] (base) at (16.8,0) {基础能力\\\tool{@thu-info/lib}\\清华校内系统\\Chrome/Selenium};
+\draw[arrow] (routes) -- (orchestration);
+\draw[arrow] (orchestration) -- (tool);
+\draw[arrow] (tool) -- (service);
+\draw[arrow] (service) -- (base);
+\end{tikzpicture}}
+\caption{thu-ai-assistant 后端分层架构}
+\label{fig:backend-layer}
+\end{figure}
+
+\subsection{功能结构}
+
+图 \ref{fig:function-map} 将产品拆成客户端、后端、校园能力和安全机制四个
+功能域。
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{
+\begin{tikzpicture}[
+  root/.style={draw,rounded corners,align=center,minimum width=4.0cm,minimum height=0.9cm,fill=blue!8,font=\bfseries},
+  box/.style={draw,rounded corners,align=center,minimum width=3.2cm,minimum height=0.75cm,fill=white},
+  small/.style={draw,rounded corners,align=center,minimum width=2.6cm,minimum height=0.62cm,fill=gray!5,font=\small},
+  arrow/.style={-{Latex[length=2mm]},thick}
+]
+\node[root] (p) at (0,0) {Campus Agent\\清华校园智能助手};
+
+\node[box,fill=green!8] (client) at (-6,-1.7) {移动端\\\tool{thu-agent-app}};
+\node[box,fill=yellow!12] (backend) at (-2,-1.7) {后端\\\tool{thu-ai-assistant}};
+\node[box,fill=orange!12] (cap) at (2,-1.7) {校园能力};
+\node[box,fill=red!8] (safe) at (6,-1.7) {安全机制};
+\foreach \n in {client,backend,cap,safe} \draw[arrow] (p) -- (\n);
+
+\node[small] at (-6,-3.0) {登录/2FA};
+\node[small] at (-6,-3.8) {对话输入};
+\node[small] at (-6,-4.6) {结果渲染};
+\node[small] at (-6,-5.4) {动作链接};
+
+\node[small] at (-2,-3.0) {Express API};
+\node[small] at (-2,-3.8) {Agent Core};
+\node[small] at (-2,-4.6) {Tool Registry};
+\node[small] at (-2,-5.4) {Data Service};
+
+\node[small] at (2,-3.0) {学习：课表/成绩/教室};
+\node[small] at (2,-3.8) {生活：校园卡/电费/校园网};
+\node[small] at (2,-4.6) {预约：体育/图书馆/研读间};
+\node[small] at (2,-5.4) {信息：新闻/通知};
+
+\node[small] at (6,-3.0) {会话隔离};
+\node[small] at (6,-3.8) {待确认动作};
+\node[small] at (6,-4.6) {风险等级};
+\node[small] at (6,-5.4) {人工最终确认};
+\end{tikzpicture}}
+\caption{Campus Agent 功能结构图}
+\label{fig:function-map}
+\end{figure}
+
+\subsection{产品思维导图}
+
+图 \ref{fig:mindmap} 用类似 XMind 的横向树状结构概括模块二的产品方案要点，
+相较放射状思维导图更适合在 A4 报告中阅读。
+
+\begin{figure}[H]
+\centering
+\resizebox{0.98\textwidth}{!}{
+\begin{tikzpicture}[
+  root/.style={draw,rounded corners=4pt,align=center,minimum width=3.8cm,minimum height=1.35cm,fill=blue!12,font=\bfseries},
+  branch/.style={draw,rounded corners=4pt,align=center,minimum width=2.8cm,minimum height=0.95cm,font=\bfseries},
+  detail/.style={draw,rounded corners=4pt,align=left,minimum width=8.2cm,minimum height=1.6cm,fill=gray!5,font=\small,text width=7.7cm,inner sep=6pt},
+  line/.style={thick,-{Latex[length=2mm]},draw=gray!65}
+]
+\node[root] (center) at (-5.7,0) {Campus Agent\\清华校园智能助手};
+
+\node[branch,fill=green!12] (value) at (-1.7,3.75) {用户价值};
+\node[detail] (valued) at (4.0,3.75) {
+  自然语言入口：用户直接表达校园任务\\
+  跨系统整合：统一课表、校园卡、体育、图书馆等能力\\
+  结构化结果：表格、列表、信息卡片统一呈现
+};
+
+\node[branch,fill=orange!14] (scenario) at (-1.7,1.25) {核心场景};
+\node[detail] (scened) at (4.0,1.25) {
+  学习：课表、成绩、教室、教学日历、培养方案\\
+  生活：校园卡、电费、宿舍、校园网、财务发票\\
+  预约：体育场馆、图书馆座位、研读间
+};
+
+\node[branch,fill=purple!12] (system) at (-1.7,-1.25) {系统组成};
+\node[detail] (systemd) at (4.0,-1.25) {
+  移动端：登录、对话、快捷入口、动作渲染\\
+  后端：Express API、会话管理、Agent 工具循环\\
+  底层：\tool{@thu-info/lib} 与体育 Selenium 兜底
+};
+
+\node[branch,fill=red!10] (safe) at (-1.7,-3.75) {安全设计};
+\node[detail] (safed) at (4.0,-3.75) {
+  统一登录与二次验证，复用已认证会话\\
+  真实动作必须先生成待确认动作\\
+  支付、预约、取消等操作由用户最终确认
+};
+
+\coordinate (spineTop) at (-3.7,3.75);
+\coordinate (spineBottom) at (-3.7,-3.75);
+\draw[thick,draw=gray!55] (center.east) -- (-3.7,0) -- (spineTop) -- (spineBottom);
+\draw[line] (-3.7,3.75) -- (value.west);
+\draw[line] (-3.7,1.25) -- (scenario.west);
+\draw[line] (-3.7,-1.25) -- (system.west);
+\draw[line] (-3.7,-3.75) -- (safe.west);
+\draw[line] (value.east) -- (valued.west);
+\draw[line] (scenario.east) -- (scened.west);
+\draw[line] (system.east) -- (systemd.west);
+\draw[line] (safe.east) -- (safed.west);
+\end{tikzpicture}}
+\caption{Campus Agent 产品思维导图（XMind 风格）}
+\label{fig:mindmap}
+\end{figure}
+
+\section{交互流程}
+
+\subsection{登录与二次验证流程}
+
+用户在移动端输入学号和密码后，后端创建会话并启动 \tool{InfoHelper} 登录。
+若触发二次验证，前端展示微信、短信或 TOTP 选项并提交验证码；登录完成后，
+后端将 \tool{loginCompleted} 置为真，后续查询复用同一个认证态。该流程如图
+\ref{fig:login-flow} 所示。
+
+\begin{figure}[H]
+\centering
+\resizebox{0.9\textwidth}{!}{
+\begin{tikzpicture}[
+  node distance=0.75cm,
+  box/.style={draw,rounded corners,align=center,minimum width=4.2cm,minimum height=0.75cm,fill=white},
+  decision/.style={draw,diamond,aspect=2,align=center,fill=yellow!12,inner sep=1pt},
+  arrow/.style={-{Latex[length=2mm]},thick}
+]
+\node[box,fill=blue!8] (a) {用户输入学号和密码};
+\node[box,below=of a] (b) {\api{POST /api/login}\\创建 \tool{sessionId}};
+\node[box,below=of b] (c) {\tool{sessionManager.startLogin()}\\调用 \tool{helper.login()}};
+\node[decision,below=of c] (d) {是否需要\\二次验证};
+\node[box,below left=0.8cm and 1.2cm of d] (e) {返回 \status{success}\\进入已登录状态};
+\node[box,below right=0.8cm and 1.2cm of d] (f) {返回 \status{two_factor}\\展示验证方式};
+\node[box,below=of f] (g) {提交验证方式与验证码};
+\node[box,below=of g] (h) {登录完成\\复用 \tool{InfoHelper}};
+\draw[arrow] (a) -- (b);
+\draw[arrow] (b) -- (c);
+\draw[arrow] (c) -- (d);
+\draw[arrow] (d) -- node[left]{否} (e);
+\draw[arrow] (d) -- node[right]{是} (f);
+\draw[arrow] (f) -- (g);
+\draw[arrow] (g) -- (h);
+\draw[arrow] (e) |- (h);
+\end{tikzpicture}}
+\caption{登录与二次验证流程}
+\label{fig:login-flow}
+\end{figure}
+
+\subsection{查询类对话流程}
+
+一次典型查询中，App 将用户消息发送到 \api{/api/chat}，后端构造消息历史、
+调用大模型，大模型返回工具调用，后端执行工具并将结果拼回对话，最后由模型
+生成结构化中文回复。
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{
+\begin{tikzpicture}[
+  node distance=0.8cm and 0.9cm,
+  box/.style={draw,rounded corners,align=center,minimum width=2.6cm,minimum height=0.72cm,fill=white},
+  arrow/.style={-{Latex[length=2mm]},thick}
+]
+\node[box,fill=blue!8] (u) {用户\\自然语言};
+\node[box,right=of u] (app) {App\\发送消息};
+\node[box,right=of app] (api) {\api{/api/chat}\\读取会话};
+\node[box,right=of api] (agent) {AI Service\\构造上下文};
+\node[box,right=of agent] (llm) {LLM\\选择工具};
+\node[box,below=1.0cm of llm] (tool) {Agent Tool\\执行查询};
+\node[box,left=of tool] (lib) {\tool{@thu-info/lib}\\真实数据};
+\node[box,left=of lib] (reply) {结构化回复\\表格/列表/卡片};
+\draw[arrow] (u) -- (app);
+\draw[arrow] (app) -- (api);
+\draw[arrow] (api) -- (agent);
+\draw[arrow] (agent) -- (llm);
+\draw[arrow] (llm) -- node[right]{tool\_calls} (tool);
+\draw[arrow] (tool) -- (lib);
+\draw[arrow] (lib) -- (reply);
+\draw[arrow] (reply) -| (app);
+\end{tikzpicture}}
+\caption{查询类对话流程}
+\label{fig:query-flow}
+\end{figure}
+
+\subsection{真实动作确认流程}
+
+图 \ref{fig:confirm-flow} 展示了统一确认协议。只有当用户在下一轮明确表达
+确认意图时，系统才会消费 \tool{confirmation_token} 并执行真实动作。
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\textwidth}{!}{
+\begin{tikzpicture}[
+  node distance=0.65cm,
+  box/.style={draw,rounded corners,align=center,minimum width=5.0cm,minimum height=0.72cm,fill=white},
+  decision/.style={draw,diamond,aspect=2.1,align=center,fill=yellow!12,inner sep=1pt},
+  arrow/.style={-{Latex[length=2mm]},thick}
+]
+\node[box,fill=blue!8] (a) {用户提出真实动作\\如“校园卡充 50 元”};
+\node[box,below=of a] (b) {调用 prepare 工具\\创建 \tool{PendingAction}};
+\node[box,below=of b] (c) {返回摘要、风险等级、过期时间\\和 \tool{confirmation_token}};
+\node[decision,below=of c] (d) {用户是否\\明确确认};
+\node[box,below left=0.8cm and 1.1cm of d] (e) {不执行真实操作\\等待或取消};
+\node[box,below right=0.8cm and 1.1cm of d] (f) {调用 \tool{confirm_pending_action}\\消费 token};
+\node[box,below=of f] (g) {执行充值/预约/取消/打开页面};
+\node[box,below=of g] (h) {通过 \tool{actions} 返回\\二维码、链接或验证码面板};
+\draw[arrow] (a) -- (b);
+\draw[arrow] (b) -- (c);
+\draw[arrow] (c) -- (d);
+\draw[arrow] (d) -- node[left]{否} (e);
+\draw[arrow] (d) -- node[right]{是} (f);
+\draw[arrow] (f) -- (g);
+\draw[arrow] (g) -- (h);
+\end{tikzpicture}}
+\caption{真实动作确认流程}
+\label{fig:confirm-flow}
+\end{figure}
+
+\subsection{体育预约兜底流程}
+
+体育预约流程先查询真实余量并准备预约，提交失败或遇到验证码时，使用
+Selenium 打开真实预约页面并交由用户完成最后确认。
+
+\begin{figure}[H]
+\centering
+\resizebox{0.95\textwidth}{!}{
+\begin{tikzpicture}[
+  node distance=0.62cm,
+  box/.style={draw,rounded corners,align=center,minimum width=4.9cm,minimum height=0.7cm,fill=white},
+  decision/.style={draw,diamond,aspect=2.1,align=center,fill=yellow!12,inner sep=1pt},
+  arrow/.style={-{Latex[length=2mm]},thick}
+]
+\node[box,fill=blue!8] (a) {用户提出体育预约需求};
+\node[box,below=of a] (b) {查询真实余量\\\tool{get_sports_resources}};
+\node[decision,below=of b] (c) {是否有\\匹配空位};
+\node[box,below left=0.8cm and 1.0cm of c] (d) {告知无空位\\或不在预约窗口};
+\node[box,below right=0.8cm and 1.0cm of c] (e) {\tool{prepare_sports_booking}\\锁定场地和时段};
+\node[box,below=of e] (f) {生成待确认动作};
+\node[box,below=of f] (g) {用户确认后提交预约};
+\node[decision,below=of g] (h) {是否需要\\验证码};
+\node[box,below left=0.8cm and 1.0cm of h] (i) {返回预约成功\\或失败原因};
+\node[box,below right=0.8cm and 1.0cm of h] (j) {\tool{open_sports_booking_page}\\打开真实预约页};
+\node[box,below=of j] (k) {用户手动完成滑块\\和最终确认};
+\draw[arrow] (a) -- (b);
+\draw[arrow] (b) -- (c);
+\draw[arrow] (c) -- node[left]{否} (d);
+\draw[arrow] (c) -- node[right]{是} (e);
+\draw[arrow] (e) -- (f);
+\draw[arrow] (f) -- (g);
+\draw[arrow] (g) -- (h);
+\draw[arrow] (h) -- node[left]{否} (i);
+\draw[arrow] (h) -- node[right]{是} (j);
+\draw[arrow] (j) -- (k);
+\end{tikzpicture}}
+\caption{体育预约兜底流程}
+\label{fig:sports-flow}
+\end{figure}
+
+\section{创新与差异化}
+
+\subsection{从功能入口转向任务入口}
+
+传统校园 App 的核心是“用户找到功能，再填写表单”。Campus Agent 的核心是
+“用户表达目标，系统选择工具”。例如用户不需要先进入体育、选择场馆、选择
+日期，而是直接说“明天羽毛球有没有空位”。系统负责从自然语言中抽取运动
+类型、日期和查询意图，再调用对应工具。
+
+\subsection{以工具调用降低大模型幻觉}
+
+系统不是让大模型凭记忆回答校园信息，而是把校园能力拆成明确的工具函数，
+例如 \tool{get_schedule}、\tool{get_sports_resources}、\tool{get_card_info}
+和 \tool{get_library_seats}。模型负责理解意图和组织表达，真实数据来自工具
+结果。这种设计能显著降低校园信息场景中最危险的“编造余额、编造空位、
+编造成绩”问题。
+
+\subsection{查询与真实动作分层}
+
+产品没有把所有能力都做成自动执行。对于查询类任务，系统可以直接返回结果；
+对于充值、预约、取消等真实动作，必须先生成待确认动作，再等待用户明确确认。
+这种分层使 Agent 既有办事能力，又不会因为误识别或误触造成资金、预约资源
+或账号状态变化。
+
+\subsection{能力目录透明化}
+
+\api{/api/capabilities} 将校园能力按“已经完成、正在集成、计划完善”三个阶段
+组织，避免用户误以为所有校园任务都已完全自动化。Agent 在用户询问能力时优先
+读取能力目录，能够清楚说明哪些能力可以稳定使用，哪些能力正在补齐真实动作
+闭环，哪些能力属于后续版本规划。
+
+\subsection{复杂流程的人机协同兜底}
+
+体育预约存在滑块验证码、预约窗口限制、支付或最终确认等复杂情况。产品没有
+强行宣称全自动，而是设计了 Selenium 打开真实预约页、复用登录态、用户手动
+完成验证码和最终确认的兜底路径。这种方式更符合校园系统的实际约束，也让
+产品在 MVP 阶段具备可演示和可扩展的真实链路。
+
+\subsection{独立 App 形态便于快速验证}
+
+\tool{thu-agent-app} 是独立包名 \tool{com.campusos.agent} 的移动端 Demo，
+不依赖改造原有 \tool{thu-info-app} 首页。这样可以在不影响原 App 稳定性的
+前提下快速验证 Agent-first 交互、工具调用协议、真实动作确认机制和结果渲染
+方式。
+
+\section{模块二小结}
+
+Campus Agent 的产品方案围绕“自然语言校园任务入口”展开：前端通过独立移动端
+提供登录、对话和动作渲染；后端通过 Express、Session Manager、Agent 工具注册
+和 \tool{@thu-info/lib} 把清华校内系统能力统一封装；大模型只负责意图理解、
+工具选择和结果表达；真实动作统一纳入待确认协议。
+
+该方案的核心优势在于：把分散校园系统整合成一个可对话、可查询、可确认、
+可扩展的校园 Agent 平台。在当前实现基础上，它已经具备课程表、成绩、校园卡、
+电费、体育、图书馆、新闻、教室、财务、校园网等多类校园能力的统一入口，并为
+后续扩展更多真实办事流程留下了清晰架构。
+
+\end{document}

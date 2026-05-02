@@ -10,6 +10,21 @@ export interface SportsResource {
     locked?: boolean;         // a boolean
     userType?: string;        // a string representing the type of user of this resource, or `undefined` if the resource is not occupied
     paymentStatus?: boolean;  // a boolean representing whether the resource has been paid, or `undefined` if the resource is not occupied
+    sceneUuid?: string;
+    sceneName?: string;
+    siteUuid?: string;
+    siteType?: string;
+    sessionDetailUuid?: string;
+    sceneUseType?: string;
+    beginDate?: string | number;
+    endDate?: string | number;
+    beginTime?: string;
+    endTime?: string;
+    formUuid?: string;
+    reserveRuleUuid?: string;
+    chargingMode?: number;
+    payType?: number;
+    reserveStatusReason?: string;
 }
 
 export interface SportsResourcesInfo {

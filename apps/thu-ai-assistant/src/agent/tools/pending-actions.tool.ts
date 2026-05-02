@@ -1,4 +1,12 @@
-import { bookLibraryRoomInfo, rechargeCardInfo, rechargeElectricityInfo } from "../../services/thu/data-service";
+import {
+    bookLibraryRoomInfo,
+    bookLibrarySeatInfo,
+    cancelLibraryBookingInfo,
+    cancelSportsBookingInfo,
+    rechargeCardInfo,
+    rechargeElectricityInfo,
+    submitSportsBookingInfo,
+} from "../../services/thu/data-service";
 import { sportsSeleniumService } from "../../services/sports-selenium/sports-selenium-service";
 import { sessionManager } from "../../session/session-manager";
 import { AgentTool } from "./types";
@@ -45,13 +53,17 @@ export const confirmPendingActionTool: AgentTool = {
         type: "function",
         function: {
             name: "confirm_pending_action",
-            description: "在用户明确确认后执行一个真实动作。可执行校园卡充值下单、电费充值下单、打开体育预约页、提交研读间预约等。",
+            description: "在用户明确确认后执行一个真实动作。可执行校园卡充值下单、电费充值下单、打开体育预约页、提交/取消图书馆座位或研读间预约、提交/取消体育预约等。",
             parameters: {
                 type: "object",
                 properties: {
                     confirmation_token: {
                         type: "string",
                         description: "prepare 工具返回的确认 token。",
+                    },
+                    captcha_verification: {
+                        type: "string",
+                        description: "可选，体育预约滑块验证码通过后返回的校验串。",
                     },
                 },
                 required: ["confirmation_token"],
@@ -112,6 +124,77 @@ export const confirmPendingActionTool: AgentTool = {
             return {
                 ...result,
                 status: result.success ? "executed" : "failed",
+                action_type: action.actionType,
+                summary: action.summary,
+            };
+        }
+
+        if (action.actionType === "library_seat_booking") {
+            const result = await bookLibrarySeatInfo(helper, action.payload);
+            return {
+                ...result,
+                status: result.success ? "executed" : (result as any).status || "failed",
+                action_type: action.actionType,
+                summary: action.summary,
+            };
+        }
+
+        if (action.actionType === "cancel_library_booking") {
+            const result = await cancelLibraryBookingInfo(
+                helper,
+                action.payload.bookingId,
+                action.payload.bookingType,
+            );
+            return {
+                ...result,
+                status: result.success ? "executed" : (result as any).status || "failed",
+                action_type: action.actionType,
+                summary: action.summary,
+            };
+        }
+
+        if (action.actionType === "sports_booking") {
+            const userId = sessionManager.getUserId(sessionId);
+            if (!userId) {
+                return { success: false, status: "missing_user", error: "缺少当前用户 ID，无法提交体育预约。" };
+            }
+            const result = await submitSportsBookingInfo(
+                helper,
+                userId,
+                action.payload,
+                args.captcha_verification || "",
+            );
+            const renewedAction = (result as any).status === "captcha_required_or_failed"
+                ? sessionManager.createPendingAction(sessionId, {
+                    actionType: action.actionType,
+                    payload: action.payload,
+                    summary: action.summary,
+                    risk: action.risk,
+                })
+                : null;
+            return {
+                ...result,
+                action_type: action.actionType,
+                summary: action.summary,
+                confirmation_token: renewedAction?.token,
+                expires_at: renewedAction ? new Date(renewedAction.expiresAt).toISOString() : undefined,
+                message: result.success
+                    ? (result as any).message || "体育预约已提交。"
+                    : (result as any).error,
+                next_actions: (result as any).status === "captcha_required_or_failed"
+                    ? [
+                        "请调用 open_sports_booking_page 打开真实预约页完成滑块验证码。",
+                        "如果前端拿到了 captcha_verification，可用新的 confirmation_token 再次确认提交。",
+                    ]
+                    : undefined,
+            };
+        }
+
+        if (action.actionType === "cancel_sports_booking") {
+            const result = await cancelSportsBookingInfo(helper, action.payload.bookingId);
+            return {
+                ...result,
+                status: result.success ? "executed" : (result as any).status || "failed",
                 action_type: action.actionType,
                 summary: action.summary,
             };

@@ -15,6 +15,7 @@ interface ToolCase {
     expected?: ExpectedStatus[];
     risk: "read" | "prepare" | "skip";
     note?: string;
+    validate?: (parsed: any) => string | null;
 }
 
 interface ToolProbeResult {
@@ -45,7 +46,7 @@ const cases: ToolCase[] = [
     { capability: "教学日历图片", tool: "get_school_calendar_image", args: { year: 2025, semester: "autumn", lang: "zh" }, risk: "read" },
     { capability: "教室列表", tool: "get_classroom", risk: "read" },
     { capability: "体测成绩", tool: "get_physical_exam", risk: "read" },
-    { capability: "评教列表", tool: "get_teaching_assessment_list", risk: "read" },
+    { capability: "评教列表", tool: "get_teaching_assessment_list", expected: ["ok", "not_open"], risk: "read" },
     { capability: "选课学期", tool: "get_course_registration_info", risk: "read", note: "只查询可用学期，不提交选退课。" },
     { capability: "选课搜索", tool: "search_course_registration_courses", args: { semester_id: "2025-2026-1", name: "人工智能", page: 1 }, risk: "read", note: "TODO 已记录该真实链路可能失败。" },
     { capability: "培养方案", tool: "get_degree_program_info", args: { full: false }, risk: "read" },
@@ -60,17 +61,54 @@ const cases: ToolCase[] = [
     { capability: "体育场馆列表", tool: "get_available_sports_venues", risk: "read" },
     { capability: "体育余量", tool: "get_sports_resources", args: { sport_name: "羽毛球", date: formatDate(tomorrow) }, risk: "read" },
     { capability: "体育预约记录", tool: "get_sports_booking_records", risk: "read" },
-    { capability: "体育预约准备", tool: "prepare_sports_booking", args: { venue_name: "羽毛球", date: formatDate(tomorrow), time_slot: "19:00-20:00" }, expected: ["awaiting_confirmation"], risk: "prepare" },
-    { capability: "体育取消准备", tool: "cancel_sports_booking", args: { booking_id: "test-only" }, expected: ["unsupported_or_pending"], risk: "prepare" },
+    {
+        capability: "体育预约准备",
+        tool: "prepare_sports_booking",
+        args: { venue_name: "羽毛球", date: formatDate(tomorrow), time_slot: "19:00-20:00" },
+        expected: ["awaiting_confirmation", "no_available_slot", "booking_window_unavailable", "availability_unconfirmed"],
+        risk: "prepare",
+        note: "有空位时必须生成待确认 token；无空位、预约窗口不可用或余量不可确认时必须阻断真实提交。",
+        validate: (parsed) => {
+            if (parsed.status === "awaiting_confirmation" && !parsed.confirmation_token) {
+                return "返回 awaiting_confirmation 但缺少 confirmation_token";
+            }
+            if (parsed.status !== "awaiting_confirmation" && parsed.confirmation_token) {
+                return `${parsed.status} 时不应生成 confirmation_token`;
+            }
+            return null;
+        },
+    },
+    { capability: "体育取消准备", tool: "cancel_sports_booking", args: { booking_id: "test-only" }, expected: ["awaiting_confirmation"], risk: "prepare" },
     { capability: "打开体育预约页", tool: "open_sports_booking_page", risk: "skip", note: "会启动 Selenium / 打开真实预约页面，单独人工验证。" },
     { capability: "图书馆列表", tool: "get_library", risk: "read" },
     { capability: "图书馆楼层", tool: "get_library_floors", args: { library: "北馆" }, risk: "read" },
     { capability: "图书馆区域", tool: "get_library_sections", risk: "read", note: "脚本会先查询真实楼层，再用第一个楼层继续测试。" },
     { capability: "图书馆座位", tool: "get_library_seats", risk: "read", note: "脚本会先查询真实楼层和区域，再用第一个区域继续测试。" },
+    {
+        capability: "图书馆座位预约准备",
+        tool: "prepare_library_seat_booking",
+        expected: ["awaiting_confirmation", "seat_not_available"],
+        risk: "prepare",
+        note: "脚本会先查询真实楼层、区域和座位，再只创建待确认动作，不直接提交真实预约。",
+        validate: (parsed) => {
+            if (parsed.status === "awaiting_confirmation" && !parsed.confirmation_token) {
+                return "返回 awaiting_confirmation 但缺少 confirmation_token";
+            }
+            return null;
+        },
+    },
     { capability: "图书馆座位预约记录", tool: "get_library_booking_records", risk: "read" },
     { capability: "研读间类型", tool: "get_library_room_resources", expected: ["need_more_parameters"], risk: "read" },
+    {
+        capability: "研读间资源",
+        tool: "get_library_room_resources",
+        args: { date: formatCompactDate(tomorrow) },
+        expected: ["ok", "partial"],
+        risk: "read",
+        note: "只给日期时查询全部类型；部分类型上游失败时仍应返回已成功类型的房间。",
+    },
     { capability: "研读间预约记录", tool: "get_library_room_booking_records", risk: "read" },
-    { capability: "图书馆取消准备", tool: "cancel_library_booking", args: { booking_id: "test-only", booking_type: "seat" }, expected: ["unsupported_or_pending"], risk: "prepare" },
+    { capability: "图书馆取消准备", tool: "cancel_library_booking", args: { booking_id: "test-only", booking_type: "seat" }, expected: ["awaiting_confirmation"], risk: "prepare" },
     { capability: "新闻列表", tool: "get_news", risk: "read" },
     { capability: "新闻搜索", tool: "get_news", args: { keyword: "奖学金" }, risk: "read" },
     { capability: "新闻订阅", tool: "get_news_subscriptions", risk: "read" },
@@ -100,7 +138,7 @@ const resolveArgs = async (
     toolCase: ToolCase,
 ) => {
     if (toolCase.args) return toolCase.args;
-    if (!["get_library_sections", "get_library_seats"].includes(toolCase.tool)) return {};
+    if (!["get_library_sections", "get_library_seats", "prepare_library_seat_booking"].includes(toolCase.tool)) return {};
 
     const floorsResult = JSON.parse(await executeTool(helper, "get_library_floors", { library: "北馆" }, sessionId));
     const floor = firstItem(floorsResult?.data?.floors);
@@ -118,6 +156,24 @@ const resolveArgs = async (
     ));
     const section = firstItem(sectionsResult?.data?.sections);
     if (!section) return { library: floorsResult.data.library.id, floor: floor.id };
+
+    if (toolCase.tool === "prepare_library_seat_booking") {
+        const seatsResult = JSON.parse(await executeTool(
+            helper,
+            "get_library_seats",
+            { library: floorsResult.data.library.id, floor: floor.id, section: section.id },
+            sessionId,
+        ));
+        const seat = Array.isArray(seatsResult?.data?.seats)
+            ? seatsResult.data.seats.find((item: any) => item.valid) || seatsResult.data.seats[0]
+            : undefined;
+        return {
+            library: floorsResult.data.library.id,
+            floor: floor.id,
+            section: section.id,
+            seat: seat?.id,
+        };
+    }
 
     return { library: floorsResult.data.library.id, floor: floor.id, section: section.id };
 };
@@ -173,7 +229,8 @@ const runCase = async (toolCase: ToolCase): Promise<ToolProbeResult> => {
         const parsed = JSON.parse(raw);
         const expected = toolCase.expected || ["ok"];
         const expectedNonOk = expected.some((status) => status !== "ok");
-        const passed = expected.includes(parsed.status) && (parsed.success === true || expectedNonOk);
+        const validationError = expected.includes(parsed.status) ? toolCase.validate?.(parsed) : null;
+        const passed = expected.includes(parsed.status) && !validationError && (parsed.success === true || expectedNonOk);
         return {
             capability: toolCase.capability,
             tool: toolCase.tool,
@@ -181,7 +238,7 @@ const runCase = async (toolCase: ToolCase): Promise<ToolProbeResult> => {
             status: passed ? "pass" : "fail",
             resultStatus: parsed.status,
             elapsedMs: Date.now() - startedAt,
-            error: parsed.error || (passed ? null : parsed.message || "工具返回 success/status 不符合预期"),
+            error: parsed.error || validationError || (passed ? null : parsed.message || "工具返回 success/status 不符合预期"),
             note: toolCase.note,
         };
     } catch (error: any) {

@@ -320,13 +320,39 @@ const collectResourceRecords = (value: unknown): PlainRecord[] => {
             "propName",
             "location",
         ]);
-        const inheritedSiteId = firstString(record, ["siteUuid", "siteId", "siteNo", "resId"]);
+        const inheritedSiteId = firstString(record, ["siteUuid", "siteId", "siteNo", "resId"]) ||
+            (inheritedField ? firstString(record, ["uuid"]) : undefined);
+        const inheritedSceneUuid = firstString(record, ["sceneUuid"]);
+        const inheritedSceneName = firstString(record, ["sceneName"]);
+        const inheritedSiteType = firstString(record, ["siteType"]);
+        const inheritedSceneUseType = firstString(record, ["sceneUseType"]);
+        const inheritedFormUuid = firstString(asRecord(record.formRuleVo) || {}, ["formUuid"]);
+        const inheritedReserveRuleUuid = firstString(asRecord(record.reserveRule) || {}, ["uuid"]);
         if (inheritedField) {
             context.fieldName = inheritedField;
         }
         if (inheritedSiteId) {
             context.resId = inheritedSiteId;
             context.resHash = inheritedSiteId;
+            context.siteUuid = inheritedSiteId;
+        }
+        if (inheritedSceneUuid) {
+            context.sceneUuid = inheritedSceneUuid;
+        }
+        if (inheritedSceneName) {
+            context.sceneName = inheritedSceneName;
+        }
+        if (inheritedSiteType) {
+            context.siteType = inheritedSiteType;
+        }
+        if (inheritedSceneUseType) {
+            context.sceneUseType = inheritedSceneUseType;
+        }
+        if (inheritedFormUuid) {
+            context.formUuid = inheritedFormUuid;
+        }
+        if (inheritedReserveRuleUuid) {
+            context.reserveRuleUuid = inheritedReserveRuleUuid;
         }
 
         const merged = { ...context, ...record };
@@ -447,6 +473,9 @@ const normalizeResourceRecord = (record: PlainRecord): SportsResource | null => 
         ? explicitBookable && !locked && !bookingId
         : statusSaysBookable && !locked && !bookingId;
     const userFeeDetails = asRecord(record.userFeeDetails);
+    const formRuleVo = asRecord(record.formRuleVo);
+    const reserveRule = asRecord(record.reserveRule);
+    const reserveStatus = asRecord(record.reserveStatus);
 
     return {
         resId: firstString(record, ["resId", "siteUuid", "id", "uuid"]) || `${fieldName}-${timeSession}`,
@@ -460,6 +489,21 @@ const normalizeResourceRecord = (record: PlainRecord): SportsResource | null => 
         locked,
         userType: firstString(record, ["userType", "siteType"]),
         paymentStatus: asBoolean(record.paymentStatus ?? record.paid),
+        sceneUuid: firstString(record, ["sceneUuid"]),
+        sceneName: firstString(record, ["sceneName"]),
+        siteUuid: firstString(record, ["siteUuid", "resId"]),
+        siteType: firstString(record, ["siteType"]),
+        sessionDetailUuid: firstString(record, ["sessionDetailUuid", "sessionUuid", "uuid", "sessionId"]),
+        sceneUseType: firstString(record, ["sceneUseType"]),
+        beginDate: firstValue(record, ["beginDate"]),
+        endDate: firstValue(record, ["endDate"]),
+        beginTime: firstString(record, ["beginTime"]),
+        endTime: firstString(record, ["endTime"]),
+        formUuid: firstString(record, ["formUuid"]) || firstString(formRuleVo || {}, ["formUuid"]),
+        reserveRuleUuid: firstString(record, ["reserveRuleUuid"]) || firstString(reserveRule || {}, ["uuid"]),
+        chargingMode: asNumber(record.chargingMode ?? userFeeDetails?.chargingMode),
+        payType: asNumber(record.payType ?? userFeeDetails?.payType),
+        reserveStatusReason: firstString(reserveStatus || {}, ["reserveStatusReason", "reason", "message"]),
     } as SportsResource;
 };
 
@@ -1009,11 +1053,16 @@ export const getSportsResources = async (
                     let totalCount = 0;
                     let totalInit = 0;
                     let phone = "";
+                    const statusMessages: string[] = [];
                     const deduped = new Map<string, SportsResource>();
 
                     for (const scene of matchedScenes) {
                         const detailedScene = await getSameLevelScene(scene);
                         const apiData = await getCurrentReservePageData(detailedScene, date);
+                        const statusMessage = firstString(apiData, ["statusMessage", "message", "msg"]);
+                        if (statusMessage) {
+                            statusMessages.push(statusMessage);
+                        }
                         const resources = extractResourcesFromApiData(apiData);
                         totalCount += extractCount(apiData, resources);
                         totalInit += extractInit(apiData, resources);
@@ -1033,13 +1082,16 @@ export const getSportsResources = async (
 
                     const data = Array.from(deduped.values());
                     const status = getSportsAvailabilityStatus(matchedScenes, data, totalCount);
+                    const explicitStatusMessage = data.length === 0 && statusMessages.length > 0
+                        ? Array.from(new Set(statusMessages)).join("；")
+                        : undefined;
                     console.log(`[Sports] 新系统API汇总资源数量: ${data.length}`);
                     return {
                         count: totalCount || data.length,
                         init: totalInit,
                         phone,
-                        statusCode: status.statusCode,
-                        statusMessage: status.statusMessage,
+                        statusCode: explicitStatusMessage ? "not_open" : status.statusCode,
+                        statusMessage: explicitStatusMessage || status.statusMessage,
                         data,
                     } as SportsResourcesInfo;
                 } catch (e: any) {

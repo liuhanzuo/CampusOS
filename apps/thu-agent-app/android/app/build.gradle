@@ -137,6 +137,8 @@ android {
 
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlinVersion"
+    implementation "net.java.dev.jna:jna:5.18.1@aar"
+    implementation "com.alphacephei:vosk-android:0.3.75@aar"
 
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
