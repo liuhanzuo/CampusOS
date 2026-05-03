@@ -1,5 +1,5 @@
 import { InfoHelper } from "@thu-info/lib";
-import { callGLM } from "./llm-client";
+import { callGLM, callGLMStream, LlmConfig } from "./llm-client";
 import { buildSystemPrompt } from "./prompt";
 import { ChatMessage, ChatResult } from "./types";
 import { executeTool } from "./tools";
@@ -12,6 +12,7 @@ export async function chat(
     helper: InfoHelper,
     messages: ChatMessage[],
     sessionId?: string,
+    llmConfig?: LlmConfig,
 ): Promise<ChatResult> {
     const toolResults: ChatResult["toolResults"] = [];
     const actions: NonNullable<ChatResult["actions"]> = [];
@@ -43,7 +44,7 @@ export async function chat(
     // 第一次调用 GLM
     console.log(`[AI] 第1次调用GLM...`);
     let glmStart = Date.now();
-    let response = await callGLM(fullMessages);
+    let response = await callGLM(fullMessages, llmConfig);
     console.log(`[AI] GLM响应耗时: ${Date.now() - glmStart}ms`);
     let assistantMessage = response.choices[0].message;
 
@@ -85,7 +86,7 @@ export async function chat(
         // 再次调用 GLM 获取最终回复
         console.log(`[AI] 第${iterations + 1}次调用GLM（带工具结果）...`);
         glmStart = Date.now();
-        response = await callGLM(fullMessages);
+        response = await callGLM(fullMessages, llmConfig);
         console.log(`[AI] GLM响应耗时: ${Date.now() - glmStart}ms`);
         assistantMessage = response.choices[0].message;
     }
@@ -97,4 +98,89 @@ export async function chat(
     const updatedMessages = [...messages, { role: "assistant" as const, content: reply }];
 
     return { reply, updatedMessages, toolResults, actions };
+}
+
+type ChatStreamEvent =
+    | { type: "status"; message: string }
+    | { type: "delta"; text: string }
+    | { type: "tool_result"; name: string; args: Record<string, unknown>; result: Record<string, unknown> }
+    | { type: "done"; reply: string; updatedMessages: ChatMessage[]; toolResults: NonNullable<ChatResult["toolResults"]>; actions: NonNullable<ChatResult["actions"]> };
+
+export async function chatStream(
+    helper: InfoHelper,
+    messages: ChatMessage[],
+    sessionId: string | undefined,
+    emit: (event: ChatStreamEvent) => void,
+    llmConfig?: LlmConfig,
+): Promise<ChatResult> {
+    const toolResults: NonNullable<ChatResult["toolResults"]> = [];
+    const actions: NonNullable<ChatResult["actions"]> = [];
+    const actionKeys = new Set<string>();
+    const fullMessages: ChatMessage[] = [
+        { role: "system", content: buildSystemPrompt() },
+        ...messages,
+    ];
+
+    const collectToolResult = (toolName: string, args: Record<string, unknown>, rawResult: string) => {
+        try {
+            const result = JSON.parse(rawResult);
+            for (const action of extractToolActions(result)) {
+                const key = JSON.stringify(action);
+                if (actionKeys.has(key)) continue;
+                actionKeys.add(key);
+                actions.push(action);
+            }
+            toolResults.push({ name: toolName, args, result });
+            emit({ type: "tool_result", name: toolName, args, result });
+        } catch {
+            // Best-effort tracing only.
+        }
+    };
+
+    let iterations = 0;
+    let finalReply = "";
+
+    while (iterations < 6) {
+        emit({ type: "status", message: iterations === 0 ? "正在思考..." : "正在整理工具结果..." });
+        const response = await callGLMStream(fullMessages, {
+            onContent: (delta) => {
+                finalReply += delta;
+                emit({ type: "delta", text: delta });
+            },
+        }, llmConfig);
+        const assistantMessage = response.choices[0].message;
+
+        if (!assistantMessage.tool_calls?.length) {
+            const reply = finalReply || assistantMessage.content || "抱歉，我暂时无法回答这个问题。";
+            const updatedMessages = [...messages, { role: "assistant" as const, content: reply }];
+            emit({ type: "done", reply, updatedMessages, toolResults, actions });
+            return { reply, updatedMessages, toolResults, actions };
+        }
+
+        finalReply = "";
+        fullMessages.push({
+            role: "assistant",
+            content: assistantMessage.content || "",
+            tool_calls: assistantMessage.tool_calls,
+        });
+
+        for (const toolCall of assistantMessage.tool_calls) {
+            const args = typeof toolCall.function.arguments === "string"
+                ? JSON.parse(toolCall.function.arguments || "{}")
+                : toolCall.function.arguments || {};
+
+            emit({ type: "status", message: `正在调用工具：${toolCall.function.name}` });
+            const result = await executeTool(helper, toolCall.function.name, args, sessionId);
+            collectToolResult(toolCall.function.name, args || {}, result);
+            fullMessages.push({
+                role: "tool",
+                content: result,
+                tool_call_id: toolCall.id,
+            });
+        }
+
+        iterations++;
+    }
+
+    throw new Error("工具调用轮次过多，请缩小任务范围后重试");
 }

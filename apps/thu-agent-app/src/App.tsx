@@ -1,6 +1,7 @@
-import React, {useMemo, useRef, useState} from "react";
+import React, {useEffect, useMemo, useRef, useState} from "react";
 import {
 	ActivityIndicator,
+	DeviceEventEmitter,
 	Image,
 	KeyboardAvoidingView,
 	Linking,
@@ -13,15 +14,30 @@ import {
 	Share,
 	StatusBar,
 	StyleSheet,
-	Text,
-	TextInput,
+	Text as RNText,
+	TextInput as RNTextInput,
 	type GestureResponderEvent,
 	type LayoutChangeEvent,
 	View,
 } from "react-native";
+import {InfoHelper} from "@thu-info/lib";
+import {chatWithMobileAgent} from "./mobile/mobileAgent";
+import {callMobileLlmStream} from "./mobile/mobileLlm";
+import type {ChatMessage as AgentChatMessage, LlmSettings} from "./mobile/agentTypes";
+
+const Text = (props: React.ComponentProps<typeof RNText>) => (
+	<RNText maxFontSizeMultiplier={1.08} {...props} />
+);
+
+const TextInput = (props: React.ComponentProps<typeof RNTextInput>) => (
+	<RNTextInput placeholderTextColor="#8C7A98" maxFontSizeMultiplier={1.08} {...props} />
+);
 
 type Role = "user" | "assistant" | "system";
 type LoginStatus = "unknown" | "not_logged_in" | "pending" | "two_factor" | "success" | "error";
+type ActiveTab = "agent" | "profile";
+type LlmMode = "builtin" | "custom";
+type RuntimeMode = "mobile" | "backend";
 
 interface Message {
 	id: string;
@@ -100,7 +116,24 @@ type VoiceInputModule = {
 	stop: () => void;
 };
 
+type SettingsStorageModule = {
+	getItem: (key: string) => Promise<string | null>;
+	setItem: (key: string, value: string) => Promise<boolean>;
+};
+
 const VoiceInput = NativeModules.VoiceInput as VoiceInputModule | undefined;
+const SettingsStorage = NativeModules.SettingsStorage as SettingsStorageModule | undefined;
+
+const iconSources = {
+	agent: require("./assets/icons/agent.png"),
+	card: require("./assets/icons/card.png"),
+	sports: require("./assets/icons/sports.png"),
+	library: require("./assets/icons/library.png"),
+	schedule: require("./assets/icons/schedule.png"),
+	user: require("./assets/icons/user.png"),
+	connection: require("./assets/icons/connection.png"),
+	mic: require("./assets/icons/mic.png"),
+};
 
 const demoPrompts = [
 	"查一下我的校园卡余额",
@@ -114,15 +147,18 @@ const demoPrompts = [
 ];
 
 const capabilityTiles = [
-	{label: "课表", tone: "blue", prompt: "今天下午有什么课"},
-	{label: "校园卡", tone: "green", prompt: "查一下我的校园卡余额"},
-	{label: "研读间", tone: "amber", prompt: "查一下研读间资源"},
-	{label: "体育", tone: "red", prompt: "明天羽毛球场有没有空位"},
+	{label: "课表", tone: "blue", prompt: "今天下午有什么课", icon: iconSources.schedule},
+	{label: "校园卡", tone: "green", prompt: "查一下我的校园卡余额", icon: iconSources.card},
+	{label: "图书馆", tone: "amber", prompt: "查一下研读间资源", icon: iconSources.library},
+	{label: "体育", tone: "red", prompt: "明天羽毛球场有没有空位", icon: iconSources.sports},
 ] as const;
 
 const makeId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, "");
 const defaultBaseUrl = "http://127.0.0.1:3000";
+const defaultLlmApiUrl = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
+const defaultLlmModel = "glm-4-flash";
+const appSettingsKey = "campusos.agent.settings.v1";
 const requestTimeoutMs = 8000;
 const longRequestTimeoutMs = 120000;
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -250,6 +286,17 @@ const normalizeExternalUrl = (url: string) => {
 		return trimmed;
 	}
 	return `https://${trimmed}`;
+};
+
+const parseSseBlock = (block: string) => {
+	let event = "message";
+	const dataLines: string[] = [];
+	for (const line of block.split(/\r?\n/)) {
+		if (line.startsWith("event:")) event = line.slice(6).trim();
+		if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+	}
+	if (!dataLines.length) return null;
+	return {event, data: JSON.parse(dataLines.join("\n"))};
 };
 
 const statusTone: Record<CampusCapability["status"], "ok" | "warn" | "neutral"> = {
@@ -413,7 +460,15 @@ const ToolResults = ({items, actionResult}: {items?: ToolResult[]; actionResult?
 };
 
 export const App = () => {
+	const [activeTab, setActiveTab] = useState<ActiveTab>("agent");
+	const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>("mobile");
 	const [baseUrl, setBaseUrl] = useState(defaultBaseUrl);
+	const [llmMode, setLlmMode] = useState<LlmMode>("builtin");
+	const [llmProvider, setLlmProvider] = useState("zhipu");
+	const [llmApiUrl, setLlmApiUrl] = useState(defaultLlmApiUrl);
+	const [llmApiKey, setLlmApiKey] = useState("");
+	const [llmModel, setLlmModel] = useState(defaultLlmModel);
+	const [llmStatus, setLlmStatus] = useState("内置服务");
 	const [userId, setUserId] = useState("");
 	const [password, setPassword] = useState("");
 	const [twoFactorCode, setTwoFactorCode] = useState("");
@@ -441,12 +496,138 @@ export const App = () => {
 	]);
 	const scrollRef = useRef<ScrollView>(null);
 	const dragStartRef = useRef(0);
+	const voiceBaseInputRef = useRef("");
+	const helperRef = useRef(new InfoHelper());
+	const mobileHistoryRef = useRef<AgentChatMessage[]>([]);
+	const twoFactorMethodResolveRef = useRef<((method: "wechat" | "mobile" | "totp" | undefined) => void) | null>(null);
+	const twoFactorCodeResolveRef = useRef<((code: string | undefined) => void) | null>(null);
 
 	const apiBase = useMemo(() => normalizeBaseUrl(baseUrl), [baseUrl]);
 	const currentStatus = statusMeta[loginStatus];
+	const llmModeLabel = llmMode === "builtin" ? "内置 LLM" : "自定义 LLM";
+	const runtimeModeLabel = runtimeMode === "mobile" ? "手机直连" : "后端代理";
+
+	useEffect(() => {
+		const helper = helperRef.current;
+		helper.clearCookieHandler = async () => {};
+		helper.trustFingerprintHook = async () => true;
+		helper.trustFingerprintNameHook = async () => "CampusOS Agent";
+		helper.twoFactorMethodHook = (hasWeChatBool, phone, hasTotp) =>
+			new Promise((resolve) => {
+				twoFactorMethodResolveRef.current = resolve;
+				setTwoFactor({type: "method_selection", hasWeChatBool, phone, hasTotp});
+				setLoginStatus("two_factor");
+				append({role: "system", content: "需要二次验证：请选择验证方式"});
+			});
+		helper.twoFactorAuthHook = () =>
+			new Promise((resolve) => {
+				twoFactorCodeResolveRef.current = resolve;
+				setTwoFactor((prev: any) => ({...(prev || {}), type: "code"}));
+				setLoginStatus("two_factor");
+				append({role: "system", content: "请输入二次验证码"});
+			});
+		helper.loginErrorHook = (error: any) => {
+			append({role: "system", content: `手机端登录失败：${error.message || error}`});
+		};
+	}, []);
+
+	useEffect(() => {
+		if (!SettingsStorage) {
+			setLlmStatus("本地设置模块未注册");
+			return;
+		}
+		SettingsStorage.getItem(appSettingsKey)
+			.then((raw) => {
+				if (!raw) return;
+				const settings = JSON.parse(raw);
+				if (settings.runtimeMode === "mobile" || settings.runtimeMode === "backend") setRuntimeMode(settings.runtimeMode);
+				if (typeof settings.baseUrl === "string") setBaseUrl(settings.baseUrl);
+				if (settings.llmMode === "builtin" || settings.llmMode === "custom") setLlmMode(settings.llmMode);
+				if (typeof settings.llmProvider === "string") setLlmProvider(settings.llmProvider);
+				if (typeof settings.llmApiUrl === "string") setLlmApiUrl(settings.llmApiUrl);
+				if (typeof settings.llmApiKey === "string") setLlmApiKey(settings.llmApiKey);
+				if (typeof settings.llmModel === "string") setLlmModel(settings.llmModel);
+				if (typeof settings.userId === "string") {
+					setUserId(settings.userId);
+					helperRef.current.userId = settings.userId;
+				}
+				if (typeof settings.password === "string") {
+					setPassword(settings.password);
+					helperRef.current.password = settings.password;
+				}
+				setLlmStatus(settings.llmMode === "custom" ? "自定义配置已载入" : "内置服务");
+			})
+			.catch(() => {
+				setLlmStatus("设置读取失败");
+			});
+	}, []);
+
+	useEffect(() => {
+		if (!SettingsStorage) return;
+		const handle = setTimeout(() => {
+			SettingsStorage.setItem(appSettingsKey, JSON.stringify({
+				runtimeMode,
+				baseUrl,
+				llmMode,
+				llmProvider,
+				llmApiUrl,
+				llmApiKey,
+				llmModel,
+				userId,
+				password,
+			})).catch(() => {
+				setLlmStatus("设置保存失败");
+			});
+		}, 300);
+		return () => clearTimeout(handle);
+	}, [runtimeMode, baseUrl, llmMode, llmProvider, llmApiUrl, llmApiKey, llmModel, userId, password]);
+
+	const buildLlmPayload = () => {
+		if (llmMode !== "custom") return undefined;
+		return {
+			mode: "custom",
+			provider: llmProvider.trim() || "custom",
+			apiUrl: normalizeBaseUrl(llmApiUrl.trim()),
+			apiKey: llmApiKey.trim(),
+			model: llmModel.trim(),
+		};
+	};
+
+	const buildMobileLlmSettings = (): LlmSettings => ({
+		mode: llmMode,
+		provider: llmProvider.trim() || "custom",
+		apiUrl: normalizeBaseUrl(llmApiUrl.trim()),
+		apiKey: llmApiKey.trim(),
+		model: llmModel.trim(),
+	});
+
+	useEffect(() => {
+		const subscription = DeviceEventEmitter.addListener("VoiceInputPartial", (text: string) => {
+			const partial = String(text || "").trim();
+			if (!partial) return;
+			const base = voiceBaseInputRef.current;
+			setInput(base ? `${base}${base.endsWith(" ") ? "" : " "}${partial}` : partial);
+		});
+		return () => subscription.remove();
+	}, []);
 
 	const append = (message: Omit<Message, "id">) => {
 		setMessages((prev: Message[]) => prev.concat({...message, id: makeId()}));
+		setTimeout(() => scrollRef.current?.scrollToEnd({animated: true}), 80);
+	};
+
+	const appendWithId = (message: Omit<Message, "id">) => {
+		const id = makeId();
+		setMessages((prev: Message[]) => prev.concat({...message, id}));
+		setTimeout(() => scrollRef.current?.scrollToEnd({animated: true}), 80);
+		return id;
+	};
+
+	const updateMessage = (id: string, patch: Partial<Message> | ((message: Message) => Message)) => {
+		setMessages((prev) => prev.map((message) => {
+			if (message.id !== id) return message;
+			return typeof patch === "function" ? patch(message) : {...message, ...patch};
+		}));
 		setTimeout(() => scrollRef.current?.scrollToEnd({animated: true}), 80);
 	};
 
@@ -484,6 +665,18 @@ export const App = () => {
 	const checkHealth = async () => {
 		setBusy(true);
 		try {
+			if (runtimeMode === "mobile") {
+				const localCapabilities: CampusCapability[] = [
+					{id: "mobile_schedule", name: "手机端课表查询", category: "手机直连", status: "ready", examples: ["今天下午有什么课"]},
+					{id: "mobile_card", name: "手机端校园卡查询", category: "手机直连", status: "ready", examples: ["查一下校园卡余额"]},
+					{id: "mobile_library", name: "手机端图书馆查询", category: "手机直连", status: "ready", examples: ["列出图书馆"]},
+					{id: "mobile_sports", name: "手机端体育余量查询", category: "手机直连", status: "ready", examples: ["明天羽毛球场有没有空位"]},
+				];
+				setCapabilities(localCapabilities);
+				setHealthLine(`手机直连 · ${localCapabilities.length} 能力`);
+				append({role: "system", content: "手机直连模式已就绪：校园接口会直接从手机访问，不依赖电脑后端。"});
+				return;
+			}
 			const [body, capabilities] = await Promise.all([
 				request("/api/health"),
 				request("/api/capabilities"),
@@ -496,6 +689,42 @@ export const App = () => {
 			});
 		} catch (e: any) {
 			append({role: "system", content: `后端连接失败：${e.message}`});
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const testLlmConnection = async () => {
+		if (llmMode === "custom" && (!llmApiUrl.trim() || !llmApiKey.trim() || !llmModel.trim())) {
+			const message = "自定义 LLM 配置不完整";
+			setLlmStatus(message);
+			append({role: "system", content: message});
+			return;
+		}
+		setBusy(true);
+		setLlmStatus("正在测试...");
+		try {
+			if (runtimeMode === "mobile") {
+				const startedAt = Date.now();
+				await callMobileLlmStream(
+					buildMobileLlmSettings(),
+					[{role: "user", content: "请只回复 ok，用于连接测试。"}],
+				);
+				const line = `手机直连 LLM 连接成功 · ${Date.now() - startedAt}ms`;
+				setLlmStatus(line);
+				append({role: "system", content: line});
+				return;
+			}
+			const body = await request("/api/llm/test", {
+				method: "POST",
+				body: JSON.stringify({llm: buildLlmPayload()}),
+			}, 30000);
+			const line = `${llmModeLabel} 连接成功 · ${body.elapsedMs}ms`;
+			setLlmStatus(line);
+			append({role: "system", content: `LLM 连接成功：${body.provider || llmModeLabel} · ${body.elapsedMs}ms`});
+		} catch (e: any) {
+			setLlmStatus(`测试失败：${e.message}`);
+			append({role: "system", content: `LLM 连接失败：${e.message}`});
 		} finally {
 			setBusy(false);
 		}
@@ -543,6 +772,16 @@ export const App = () => {
 		}
 		setBusy(true);
 		try {
+			if (runtimeMode === "mobile") {
+				setLoginStatus("pending");
+				setHealthLine("手机端正在登录校园账号...");
+				await helperRef.current.login({userId, password});
+				setLoginStatus("success");
+				setTwoFactor(null);
+				setHealthLine("手机直连 · 校园账号已登录");
+				append({role: "system", content: "手机端校园账号登录成功，后续校园接口会直接从手机访问。"});
+				return;
+			}
 			const body = await request("/api/login", {
 				method: "POST",
 				body: JSON.stringify({userId, password}),
@@ -569,6 +808,12 @@ export const App = () => {
 
 	const submitTwoFactor = async () => {
 		if (!twoFactorCode) return;
+		if (runtimeMode === "mobile" && twoFactorCodeResolveRef.current) {
+			twoFactorCodeResolveRef.current(twoFactorCode);
+			twoFactorCodeResolveRef.current = null;
+			append({role: "system", content: "验证码已提交，等待手机端完成登录"});
+			return;
+		}
 		setBusy(true);
 		try {
 			await request("/api/login/2fa/code", {
@@ -585,6 +830,12 @@ export const App = () => {
 	};
 
 	const submitTwoFactorMethod = async (method: "wechat" | "mobile" | "totp") => {
+		if (runtimeMode === "mobile" && twoFactorMethodResolveRef.current) {
+			twoFactorMethodResolveRef.current(method);
+			twoFactorMethodResolveRef.current = null;
+			append({role: "system", content: `已选择 ${method} 验证方式，请输入收到的验证码`});
+			return;
+		}
 		setBusy(true);
 		try {
 			await request("/api/login/2fa/method", {
@@ -605,26 +856,142 @@ export const App = () => {
 		if (!prompt || busy) return;
 		setInput("");
 		append({role: "user", content: prompt});
+		const assistantId = appendWithId({role: "assistant", content: ""});
 		setBusy(true);
 		try {
-			const body = await request("/api/chat", {
-				method: "POST",
-				body: JSON.stringify({message: prompt}),
-			}, longRequestTimeoutMs);
-			append({
-				role: "assistant",
-				content: body.reply || "后端没有返回回复。",
-				actions: body.actions || [],
-				toolResults: body.toolResults || [],
-				actionResult: body.actionResult,
-			});
+			if (runtimeMode === "mobile") {
+				await streamMobileChat(prompt, assistantId);
+			} else {
+				await streamChat(prompt, assistantId);
+			}
 		} catch (e: any) {
 			if (String(e.message).includes("请先登录")) setLoginStatus("not_logged_in");
-			append({role: "assistant", content: `### 调用失败\n${e.message}`});
+			updateMessage(assistantId, {role: "assistant", content: `### 调用失败\n${e.message}`});
 		} finally {
 			setBusy(false);
 		}
 	};
+
+	const streamMobileChat = async (prompt: string, assistantId: string) => {
+		if (loginStatus !== "success") {
+			throw new Error("请先在“我的”页面登录校园账号");
+		}
+		if (llmMode !== "custom") {
+			throw new Error("手机直连模式需要在“我的”页面选择“自定义 Key”并配置 LLM API Key");
+		}
+		const history = mobileHistoryRef.current.concat({role: "user", content: prompt});
+		const result = await chatWithMobileAgent(
+			helperRef.current,
+			buildMobileLlmSettings(),
+			history,
+			(event) => {
+				if (event.type === "delta") {
+					updateMessage(assistantId, (message) => ({
+						...message,
+						content: `${message.content || ""}${event.text}`,
+					}));
+				}
+				if (event.type === "tool_result") {
+					updateMessage(assistantId, (message) => ({
+						...message,
+						toolResults: (message.toolResults || []).concat({
+							name: event.name,
+							args: event.args,
+							result: event.result,
+						}),
+					}));
+				}
+				if (event.type === "status") {
+					setHealthLine(event.message);
+				}
+				if (event.type === "done") {
+					updateMessage(assistantId, (message) => ({
+						...message,
+						content: event.reply || message.content || "手机端 Agent 没有返回回复。",
+						actions: event.actions || message.actions || [],
+						toolResults: event.toolResults || message.toolResults || [],
+					}));
+				}
+			},
+		);
+		mobileHistoryRef.current = result.updatedMessages.slice(-20);
+	};
+
+	const streamChat = (prompt: string, assistantId: string) =>
+		new Promise<void>((resolve, reject) => {
+			const xhr = new XMLHttpRequest();
+			let cursor = 0;
+			let buffer = "";
+			let settled = false;
+
+			const finish = (error?: Error) => {
+				if (settled) return;
+				settled = true;
+				if (error) reject(error);
+				else resolve();
+			};
+
+			const handleBlock = (rawBlock: string) => {
+				const block = rawBlock.trim();
+				if (!block) return;
+				const parsed = parseSseBlock(block);
+				if (!parsed) return;
+				const {event, data} = parsed;
+				if (event === "delta") {
+					updateMessage(assistantId, (message) => ({
+						...message,
+						content: `${message.content || ""}${data.text || ""}`,
+					}));
+				}
+				if (event === "tool_result") {
+					updateMessage(assistantId, (message) => ({
+						...message,
+						toolResults: (message.toolResults || []).concat({
+							name: data.name,
+							args: data.args || {},
+							result: data.result || {},
+						}),
+					}));
+				}
+				if (event === "done") {
+					updateMessage(assistantId, (message) => ({
+						...message,
+						content: data.reply || message.content || "后端没有返回回复。",
+						actions: data.actions || message.actions || [],
+						toolResults: data.toolResults || message.toolResults || [],
+						actionResult: data.actionResult || message.actionResult,
+					}));
+					finish();
+				}
+				if (event === "error") {
+					finish(new Error(data.error || "流式回复失败"));
+				}
+			};
+
+			xhr.onreadystatechange = () => {
+				if (xhr.readyState === xhr.LOADING || xhr.readyState === xhr.DONE) {
+					const chunk = xhr.responseText.slice(cursor);
+					cursor = xhr.responseText.length;
+					buffer += chunk;
+					const blocks = buffer.split(/\n\n/);
+					buffer = blocks.pop() || "";
+					for (const block of blocks) handleBlock(block);
+				}
+				if (xhr.readyState === xhr.DONE && !settled) {
+					if (buffer.trim()) handleBlock(buffer);
+					if (xhr.status >= 200 && xhr.status < 300) finish();
+					else finish(new Error(`HTTP ${xhr.status}`));
+				}
+			};
+			xhr.onerror = () => finish(new Error(`无法连接后端 ${apiBase}`));
+			xhr.ontimeout = () => finish(new Error(`请求超时，请确认后端地址 ${apiBase} 可访问`));
+			xhr.open("POST", `${apiBase}/api/chat/stream`);
+			xhr.setRequestHeader("Content-Type", "application/json");
+			xhr.setRequestHeader("Accept", "text/event-stream");
+			xhr.withCredentials = true;
+			xhr.timeout = longRequestTimeoutMs;
+			xhr.send(JSON.stringify({message: prompt, llm: buildLlmPayload()}));
+		});
 
 	const requestMicPermission = async () => {
 		if (Platform.OS !== "android") return true;
@@ -649,6 +1016,7 @@ export const App = () => {
 			return;
 		}
 		setListening(true);
+		voiceBaseInputRef.current = input.trim();
 		try {
 			const available = await VoiceInput.isAvailable();
 			if (!available) {
@@ -657,11 +1025,13 @@ export const App = () => {
 			}
 			const text = await VoiceInput.start("zh-CN");
 			if (text.trim()) {
-				setInput((prev) => prev ? `${prev}${prev.endsWith(" ") ? "" : " "}${text}` : text);
+				const base = voiceBaseInputRef.current;
+				setInput(base ? `${base}${base.endsWith(" ") ? "" : " "}${text.trim()}` : text.trim());
 			}
 		} catch (e: any) {
 			append({role: "system", content: `语音识别失败：${e.message || e}`});
 		} finally {
+			voiceBaseInputRef.current = "";
 			setListening(false);
 		}
 	};
@@ -673,11 +1043,16 @@ export const App = () => {
 	const clearChat = async () => {
 		setBusy(true);
 		try {
-			await request("/api/chat/clear", {method: "POST"}).catch(() => null);
+			mobileHistoryRef.current = [];
+			if (runtimeMode === "backend") {
+				await request("/api/chat/clear", {method: "POST"}).catch(() => null);
+			}
 			setMessages([{
 				id: makeId(),
 				role: "assistant",
-				content: "### Campus Agent 已就绪\n输入任务开始，结构化结果和动作会在这里展示。",
+				content: runtimeMode === "mobile"
+					? "### 手机端 Campus Agent 已就绪\n输入任务开始，校园接口会直接从手机访问。"
+					: "### Campus Agent 已就绪\n输入任务开始，结构化结果和动作会在这里展示。",
 			}]);
 		} finally {
 			setBusy(false);
@@ -687,7 +1062,11 @@ export const App = () => {
 	const logout = async () => {
 		setBusy(true);
 		try {
-			await request("/api/logout", {method: "POST"}).catch(() => null);
+			if (runtimeMode === "mobile") {
+				await helperRef.current.logout().catch(() => null);
+			} else {
+				await request("/api/logout", {method: "POST"}).catch(() => null);
+			}
 			setLoginStatus("not_logged_in");
 			setTwoFactor(null);
 			append({role: "system", content: "已退出登录"});
@@ -875,205 +1254,379 @@ export const App = () => {
 		);
 	};
 
-	return (
-		<View style={styles.safe}>
-			<StatusBar barStyle="dark-content" backgroundColor="#eef2f1" />
-			<KeyboardAvoidingView
-				style={styles.root}
-				behavior={Platform.OS === "ios" ? "padding" : undefined}>
-				<View style={styles.appBar}>
-					<View>
+	const renderAgentPage = () => (
+		<>
+			<View style={styles.agentHero}>
+				<View style={styles.heroIdentity}>
+					<Image source={iconSources.agent} style={styles.heroIcon} />
+					<View style={styles.heroCopy}>
 						<Text style={styles.kicker}>CampusOS</Text>
 						<Text style={styles.title}>Campus Agent</Text>
 						<Text style={styles.healthLine} numberOfLines={1}>{healthLine}</Text>
 					</View>
-					<View style={styles.appBarRight}>
-						<View style={[styles.statusPill, styles[`status_${currentStatus.tone}`]]}>
-							<View style={[styles.statusDot, styles[`dot_${currentStatus.tone}`]]} />
-							<Text style={styles.statusPillText}>{currentStatus.label}</Text>
-						</View>
-						<View style={styles.headerActions}>
-							<Pressable style={styles.headerButton} onPress={clearChat} disabled={busy}>
-								<Text style={styles.headerButtonText}>清空</Text>
-							</Pressable>
-							<Pressable style={styles.headerButton} onPress={logout} disabled={busy}>
-								<Text style={styles.headerButtonText}>退出</Text>
-							</Pressable>
-						</View>
-					</View>
+				</View>
+				<View style={[styles.statusPill, styles[`status_${currentStatus.tone}`]]}>
+					<View style={[styles.statusDot, styles[`dot_${currentStatus.tone}`]]} />
+					<Text style={styles.statusPillText}>{currentStatus.label}</Text>
+				</View>
+			</View>
+
+			<ScrollView
+				style={styles.content}
+				contentContainerStyle={styles.agentContent}
+				keyboardShouldPersistTaps="handled">
+				<View style={styles.capabilityGrid}>
+					{capabilityTiles.map((item) => (
+						<Pressable
+							key={item.label}
+							style={({pressed}) => [
+								styles.capabilityTile,
+								styles[`tile_${item.tone}`],
+								pressed ? styles.pressed : null,
+							]}
+							onPress={() => sendMessage(item.prompt)}
+							disabled={busy}>
+							<Image source={item.icon} style={styles.capabilityIcon} />
+							<Text style={styles.capabilityLabel}>{item.label}</Text>
+						</Pressable>
+					))}
 				</View>
 
-				<ScrollView
-					style={styles.content}
-					contentContainerStyle={styles.contentBody}
-					keyboardShouldPersistTaps="handled">
-					<View style={styles.sessionCard}>
-						<View style={styles.cardHeader}>
-							<Text style={styles.cardTitle}>会话连接</Text>
-							{busy ? <ActivityIndicator color="#145c56" /> : null}
-						</View>
-						<View style={styles.backendRow}>
-							<TextInput
-								style={styles.backendInput}
-								value={baseUrl}
-								autoCapitalize="none"
-								autoCorrect={false}
-								onChangeText={setBaseUrl}
-								placeholder="后端地址"
-							/>
-							<Pressable
-								style={({pressed}) => [styles.secondaryButton, pressed ? styles.pressed : null]}
-								onPress={checkHealth}
-								disabled={busy}>
-								<Text style={styles.secondaryButtonText}>检查</Text>
-							</Pressable>
-						</View>
-						<View style={styles.loginGrid}>
-							<TextInput
-								style={styles.field}
-								value={userId}
-								onChangeText={setUserId}
-								placeholder="学号"
-								autoCapitalize="none"
-							/>
-							<TextInput
-								style={styles.field}
-								value={password}
-								onChangeText={setPassword}
-								placeholder="密码"
-								secureTextEntry
-							/>
-							<Pressable
-								style={({pressed}) => [styles.primaryButton, pressed ? styles.pressed : null]}
-								onPress={login}
-								disabled={busy}>
-								<Text style={styles.primaryButtonText}>登录</Text>
-							</Pressable>
-						</View>
-						<View style={styles.twoFactorRow}>
-							{twoFactor?.type === "method_selection" ? (
-								<View style={styles.methodRow}>
-									{twoFactor.hasWeChatBool ? (
-										<Pressable style={styles.methodChip} onPress={() => submitTwoFactorMethod("wechat")} disabled={busy}>
-											<Text style={styles.methodChipText}>微信</Text>
-										</Pressable>
-									) : null}
-									{twoFactor.phone ? (
-										<Pressable style={styles.methodChip} onPress={() => submitTwoFactorMethod("mobile")} disabled={busy}>
-											<Text style={styles.methodChipText}>短信</Text>
-										</Pressable>
-									) : null}
-									{twoFactor.hasTotp ? (
-										<Pressable style={styles.methodChip} onPress={() => submitTwoFactorMethod("totp")} disabled={busy}>
-											<Text style={styles.methodChipText}>TOTP</Text>
-										</Pressable>
-									) : null}
-								</View>
-							) : null}
-							<TextInput
-								style={styles.codeInput}
-								value={twoFactorCode}
-								onChangeText={setTwoFactorCode}
-								placeholder="2FA"
-								keyboardType="number-pad"
-							/>
-							<Pressable style={styles.ghostButton} onPress={submitTwoFactor} disabled={busy}>
-								<Text style={styles.ghostButtonText}>提交</Text>
-							</Pressable>
-						</View>
-					</View>
-
-					<View style={styles.capabilityGrid}>
-						{capabilityTiles.map((item) => (
-							<Pressable
-								key={item.label}
-								style={({pressed}) => [
-									styles.capabilityTile,
-									styles[`tile_${item.tone}`],
-									pressed ? styles.pressed : null,
-								]}
-								onPress={() => sendMessage(item.prompt)}
-								disabled={busy}>
-								<Text style={styles.capabilityLabel}>{item.label}</Text>
-							</Pressable>
-						))}
-					</View>
-
-					{capabilities.length > 0 ? (
-						<ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.capabilityStrip}>
-							{capabilities.map((capability) => (
-								<Pressable
-									key={capability.id}
-									style={({pressed}) => [styles.capabilityChip, pressed ? styles.pressed : null]}
-									onPress={() => sendMessage(capability.examples[0] || `介绍一下${capability.name}`)}
-									disabled={busy}>
-									<Text style={styles.capabilityChipTitle}>{capability.name}</Text>
-									<View style={[styles.capabilityStatus, styles[`capabilityStatus_${statusTone[capability.status]}`]]}>
-										<Text style={styles.capabilityStatusText}>{statusLabel[capability.status]}</Text>
-									</View>
-								</Pressable>
-							))}
-						</ScrollView>
-					) : null}
-
-					<ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickStrip}>
-						{demoPrompts.map((prompt) => (
-							<Pressable
-								key={prompt}
-								style={({pressed}) => [styles.quickButton, pressed ? styles.pressed : null]}
-								onPress={() => sendMessage(prompt)}
-								disabled={busy}>
-								<Text style={styles.quickText}>{prompt}</Text>
-							</Pressable>
-						))}
-					</ScrollView>
-
-					<View style={styles.threadShell}>
-						<View style={styles.threadHeader}>
-							<Text style={styles.cardTitle}>Agent</Text>
-							<Text style={styles.threadCount}>{messages.length} 条</Text>
-						</View>
-						<ScrollView
-							ref={scrollRef}
-							style={styles.messages}
-							contentContainerStyle={styles.messageContent}
-							nestedScrollEnabled>
-							{messages.map(renderMessage)}
-							{busy ? (
-								<View style={styles.systemEvent}>
-									<ActivityIndicator color="#145c56" />
-									<Text style={styles.systemEventText}>处理中</Text>
-								</View>
-							) : null}
-						</ScrollView>
-					</View>
+				<ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickStrip}>
+					{demoPrompts.map((prompt) => (
+						<Pressable
+							key={prompt}
+							style={({pressed}) => [styles.quickButton, pressed ? styles.pressed : null]}
+							onPress={() => sendMessage(prompt)}
+							disabled={busy}>
+							<Text style={styles.quickText}>{prompt}</Text>
+						</Pressable>
+					))}
 				</ScrollView>
 
-				<View style={styles.composer}>
-					<TextInput
-						style={styles.composerInput}
-						value={input}
-						onChangeText={setInput}
-						placeholder={listening ? "正在听..." : "输入校园任务"}
-						multiline
-					/>
+				<View style={styles.threadShell}>
+					<View style={styles.threadHeader}>
+						<View style={styles.sectionTitleRow}>
+							<Image source={iconSources.agent} style={styles.sectionIcon} />
+							<Text style={styles.cardTitle}>对话</Text>
+						</View>
+						<Pressable style={styles.headerButton} onPress={clearChat} disabled={busy}>
+							<Text style={styles.headerButtonText}>清空</Text>
+						</Pressable>
+					</View>
+					<ScrollView
+						ref={scrollRef}
+						style={styles.messages}
+						contentContainerStyle={styles.messageContent}
+						nestedScrollEnabled>
+						{messages.map(renderMessage)}
+						{busy ? (
+							<View style={styles.systemEvent}>
+								<ActivityIndicator color="#5C307D" />
+								<Text style={styles.systemEventText}>处理中</Text>
+							</View>
+						) : null}
+					</ScrollView>
+				</View>
+			</ScrollView>
+
+			<View style={styles.composer}>
+				<TextInput
+					style={styles.composerInput}
+					value={input}
+					onChangeText={setInput}
+					placeholder={listening ? "正在听..." : "输入校园任务"}
+					multiline
+				/>
+				<Pressable
+					style={({pressed}) => [
+						styles.voiceButton,
+						listening ? styles.voiceButtonActive : null,
+						pressed ? styles.pressed : null,
+					]}
+					onPress={startVoiceInput}
+					disabled={busy || listening}>
+					<Image source={iconSources.mic} style={styles.voiceIcon} />
+				</Pressable>
+				<Pressable
+					style={({pressed}) => [styles.sendButton, pressed ? styles.pressed : null]}
+					onPress={() => sendMessage()}
+					disabled={busy}>
+					<Text style={styles.sendButtonText}>发送</Text>
+				</Pressable>
+			</View>
+		</>
+	);
+
+	const renderProfilePage = () => (
+		<ScrollView
+			style={styles.content}
+			contentContainerStyle={styles.profileContent}
+			keyboardShouldPersistTaps="handled">
+			<View style={styles.profileHeader}>
+				<Image source={iconSources.user} style={styles.profileAvatar} />
+				<View style={styles.profileText}>
+					<Text style={styles.profileName}>{userId || "未登录用户"}</Text>
+					<Text style={styles.profileMeta}>{runtimeModeLabel} · {healthLine} · {currentStatus.label}</Text>
+				</View>
+				<View style={[styles.statusPill, styles[`status_${currentStatus.tone}`]]}>
+					<View style={[styles.statusDot, styles[`dot_${currentStatus.tone}`]]} />
+					<Text style={styles.statusPillText}>{currentStatus.label}</Text>
+				</View>
+			</View>
+
+			<View style={styles.panel}>
+				<View style={styles.cardHeader}>
+					<View style={styles.sectionTitleRow}>
+						<Image source={iconSources.connection} style={styles.sectionIcon} />
+						<Text style={styles.cardTitle}>运行模式</Text>
+					</View>
+					{busy ? <ActivityIndicator color="#5C307D" /> : null}
+				</View>
+				<View style={styles.modeRow}>
 					<Pressable
-						style={({pressed}) => [
-							styles.voiceButton,
-							listening ? styles.voiceButtonActive : null,
-							pressed ? styles.pressed : null,
-						]}
-						onPress={startVoiceInput}
-						disabled={busy || listening}>
-						<Text style={[styles.voiceButtonText, listening ? styles.voiceButtonTextActive : null]}>
-							{listening ? "听" : "麦"}
-						</Text>
+						style={[styles.modeButton, runtimeMode === "mobile" ? styles.modeButtonActive : null]}
+						onPress={() => {
+							setRuntimeMode("mobile");
+							setHealthLine("手机直连 · 等待登录");
+						}}>
+						<Text style={[styles.modeButtonText, runtimeMode === "mobile" ? styles.modeButtonTextActive : null]}>手机直连</Text>
 					</Pressable>
 					<Pressable
-						style={({pressed}) => [styles.sendButton, pressed ? styles.pressed : null]}
-						onPress={() => sendMessage()}
+						style={[styles.modeButton, runtimeMode === "backend" ? styles.modeButtonActive : null]}
+						onPress={() => {
+							setRuntimeMode("backend");
+							setHealthLine("后端代理 · 等待连接");
+						}}>
+						<Text style={[styles.modeButtonText, runtimeMode === "backend" ? styles.modeButtonTextActive : null]}>后端代理</Text>
+					</Pressable>
+				</View>
+				<View style={styles.backendRow}>
+					{runtimeMode === "backend" ? (
+						<TextInput
+							style={styles.backendInput}
+							value={baseUrl}
+							autoCapitalize="none"
+							autoCorrect={false}
+							onChangeText={setBaseUrl}
+							placeholder="后端地址"
+						/>
+					) : (
+						<View style={styles.mobileDirectBox}>
+							<Text style={styles.helperText}>校园接口从手机直接访问；请确保手机能访问清华服务。</Text>
+						</View>
+					)}
+					<Pressable
+						style={({pressed}) => [styles.secondaryButton, pressed ? styles.pressed : null]}
+						onPress={checkHealth}
 						disabled={busy}>
-						<Text style={styles.sendButtonText}>发送</Text>
+						<Text style={styles.secondaryButtonText}>检查</Text>
+					</Pressable>
+				</View>
+			</View>
+
+			<View style={styles.panel}>
+				<View style={styles.cardHeader}>
+					<View style={styles.sectionTitleRow}>
+						<Image source={iconSources.agent} style={styles.sectionIcon} />
+						<Text style={styles.cardTitle}>LLM 模式</Text>
+					</View>
+					<Text style={styles.threadCount}>{llmModeLabel}</Text>
+				</View>
+				<View style={styles.modeRow}>
+					<Pressable
+						style={[styles.modeButton, llmMode === "builtin" ? styles.modeButtonActive : null]}
+						onPress={() => {
+							setLlmMode("builtin");
+							setLlmStatus("内置服务");
+						}}>
+						<Text style={[styles.modeButtonText, llmMode === "builtin" ? styles.modeButtonTextActive : null]}>内置服务</Text>
+					</Pressable>
+					<Pressable
+						style={[styles.modeButton, llmMode === "custom" ? styles.modeButtonActive : null]}
+						onPress={() => {
+							setLlmMode("custom");
+							setLlmStatus("自定义配置");
+						}}>
+						<Text style={[styles.modeButtonText, llmMode === "custom" ? styles.modeButtonTextActive : null]}>自定义 Key</Text>
+					</Pressable>
+				</View>
+				{llmMode === "custom" ? (
+					<View style={styles.llmForm}>
+						<View style={styles.providerRow}>
+							{[
+								["zhipu", "智谱"],
+								["deepseek", "DeepSeek"],
+								["openai", "OpenAI"],
+								["custom", "兼容"],
+							].map(([value, label]) => (
+								<Pressable
+									key={value}
+									style={[styles.providerChip, llmProvider === value ? styles.providerChipActive : null]}
+									onPress={() => setLlmProvider(value)}>
+									<Text style={[styles.providerChipText, llmProvider === value ? styles.providerChipTextActive : null]}>{label}</Text>
+								</Pressable>
+							))}
+						</View>
+						<TextInput
+							style={styles.llmInput}
+							value={llmApiUrl}
+							onChangeText={setLlmApiUrl}
+							autoCapitalize="none"
+							autoCorrect={false}
+							placeholder="OpenAI 兼容 Chat Completions URL"
+						/>
+						<TextInput
+							style={styles.llmInput}
+							value={llmModel}
+							onChangeText={setLlmModel}
+							autoCapitalize="none"
+							autoCorrect={false}
+							placeholder="模型名，例如 glm-4-flash"
+						/>
+						<TextInput
+							style={styles.llmInput}
+							value={llmApiKey}
+							onChangeText={setLlmApiKey}
+							autoCapitalize="none"
+							autoCorrect={false}
+							secureTextEntry
+							placeholder="API Key"
+						/>
+					</View>
+				) : null}
+				<View style={styles.llmFooter}>
+					<Text style={styles.helperText} numberOfLines={2}>{llmStatus}</Text>
+					<Pressable
+						style={({pressed}) => [styles.secondaryButton, pressed ? styles.pressed : null]}
+						onPress={testLlmConnection}
+						disabled={busy}>
+						<Text style={styles.secondaryButtonText}>测试</Text>
+					</Pressable>
+				</View>
+			</View>
+
+			<View style={styles.panel}>
+				<View style={styles.cardHeader}>
+					<View style={styles.sectionTitleRow}>
+						<Image source={iconSources.user} style={styles.sectionIcon} />
+						<Text style={styles.cardTitle}>登录</Text>
+					</View>
+					<Pressable style={styles.headerButton} onPress={logout} disabled={busy}>
+						<Text style={styles.headerButtonText}>退出</Text>
+					</Pressable>
+				</View>
+				<View style={styles.loginGrid}>
+					<TextInput
+						style={styles.field}
+						value={userId}
+						onChangeText={setUserId}
+						placeholder="学号"
+						autoCapitalize="none"
+					/>
+					<TextInput
+						style={styles.field}
+						value={password}
+						onChangeText={setPassword}
+						placeholder="密码"
+						secureTextEntry
+					/>
+					<Pressable
+						style={({pressed}) => [styles.primaryButton, pressed ? styles.pressed : null]}
+						onPress={login}
+						disabled={busy}>
+						<Text style={styles.primaryButtonText}>登录</Text>
+					</Pressable>
+				</View>
+				<View style={styles.twoFactorRow}>
+					{twoFactor?.type === "method_selection" ? (
+						<View style={styles.methodRow}>
+							{twoFactor.hasWeChatBool ? (
+								<Pressable style={styles.methodChip} onPress={() => submitTwoFactorMethod("wechat")} disabled={busy && runtimeMode !== "mobile"}>
+									<Text style={styles.methodChipText}>微信</Text>
+								</Pressable>
+							) : null}
+							{twoFactor.phone ? (
+								<Pressable style={styles.methodChip} onPress={() => submitTwoFactorMethod("mobile")} disabled={busy && runtimeMode !== "mobile"}>
+									<Text style={styles.methodChipText}>短信</Text>
+								</Pressable>
+							) : null}
+							{twoFactor.hasTotp ? (
+								<Pressable style={styles.methodChip} onPress={() => submitTwoFactorMethod("totp")} disabled={busy && runtimeMode !== "mobile"}>
+									<Text style={styles.methodChipText}>TOTP</Text>
+								</Pressable>
+							) : null}
+						</View>
+					) : null}
+					<TextInput
+						style={styles.codeInput}
+						value={twoFactorCode}
+						onChangeText={setTwoFactorCode}
+						placeholder="2FA"
+						keyboardType="number-pad"
+					/>
+					<Pressable style={styles.ghostButton} onPress={submitTwoFactor} disabled={busy && runtimeMode !== "mobile"}>
+						<Text style={styles.ghostButtonText}>提交</Text>
+					</Pressable>
+				</View>
+			</View>
+
+			<View style={styles.panel}>
+				<View style={styles.cardHeader}>
+					<View style={styles.sectionTitleRow}>
+						<Image source={iconSources.library} style={styles.sectionIcon} />
+						<Text style={styles.cardTitle}>能力目录</Text>
+					</View>
+					<Text style={styles.threadCount}>{capabilities.length || capabilityTiles.length} 项</Text>
+				</View>
+				<View style={styles.profileCapabilityGrid}>
+					{(capabilities.length ? capabilities : capabilityTiles.map((item) => ({
+						id: item.label,
+						name: item.label,
+						status: "ready" as const,
+						examples: [item.prompt],
+					}))).map((capability, index) => (
+						<Pressable
+							key={capability.id}
+							style={({pressed}) => [styles.profileCapability, pressed ? styles.pressed : null]}
+							onPress={() => {
+								setActiveTab("agent");
+								sendMessage(capability.examples[0] || `介绍一下${capability.name}`);
+							}}
+							disabled={busy}>
+							<Image source={capabilityTiles[index % capabilityTiles.length].icon} style={styles.profileCapabilityIcon} />
+							<View style={styles.profileCapabilityText}>
+								<Text style={styles.capabilityChipTitle}>{capability.name}</Text>
+								<View style={[styles.capabilityStatus, styles[`capabilityStatus_${statusTone[capability.status]}`]]}>
+									<Text style={styles.capabilityStatusText}>{statusLabel[capability.status]}</Text>
+								</View>
+							</View>
+						</Pressable>
+					))}
+				</View>
+			</View>
+		</ScrollView>
+	);
+
+	return (
+		<View style={styles.safe}>
+			<StatusBar barStyle="light-content" backgroundColor="#4B1F6F" />
+			<KeyboardAvoidingView
+				style={styles.root}
+				behavior={Platform.OS === "ios" ? "padding" : undefined}>
+				{activeTab === "agent" ? renderAgentPage() : renderProfilePage()}
+				<View style={styles.tabBar}>
+					<Pressable
+						style={[styles.tabItem, activeTab === "agent" ? styles.tabItemActive : null]}
+						onPress={() => setActiveTab("agent")}>
+						<Image source={iconSources.agent} style={styles.tabIcon} />
+						<Text style={[styles.tabText, activeTab === "agent" ? styles.tabTextActive : null]}>Agent</Text>
+					</Pressable>
+					<Pressable
+						style={[styles.tabItem, activeTab === "profile" ? styles.tabItemActive : null]}
+						onPress={() => setActiveTab("profile")}>
+						<Image source={iconSources.user} style={styles.tabIcon} />
+						<Text style={[styles.tabText, activeTab === "profile" ? styles.tabTextActive : null]}>我的</Text>
 					</Pressable>
 				</View>
 			</KeyboardAvoidingView>
@@ -1161,10 +1714,226 @@ export const App = () => {
 const styles = StyleSheet.create({
 	safe: {
 		flex: 1,
-		backgroundColor: "#eef2f1",
+		backgroundColor: "#F7F2FA",
 	},
 	root: {
 		flex: 1,
+		backgroundColor: "#F7F2FA",
+	},
+	agentHero: {
+		minHeight: Platform.OS === "android" ? 116 : 96,
+		paddingHorizontal: 16,
+		paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight || 0) + 10 : 14,
+		paddingBottom: 14,
+		flexDirection: "row",
+		alignItems: "center",
+		justifyContent: "space-between",
+		backgroundColor: "#4B1F6F",
+	},
+	heroIdentity: {
+		flex: 1,
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 12,
+	},
+	heroIcon: {
+		width: 48,
+		height: 48,
+	},
+	heroCopy: {
+		flex: 1,
+	},
+	agentContent: {
+		paddingHorizontal: 12,
+		paddingTop: 12,
+		paddingBottom: 10,
+	},
+	profileContent: {
+		paddingHorizontal: 12,
+		paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight || 0) + 12 : 14,
+		paddingBottom: 86,
+	},
+	profileHeader: {
+		minHeight: 84,
+		padding: 12,
+		borderRadius: 8,
+		backgroundColor: "#4B1F6F",
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 10,
+	},
+	profileAvatar: {
+		width: 52,
+		height: 52,
+	},
+	profileText: {
+		flex: 1,
+	},
+	profileName: {
+		fontSize: 18,
+		lineHeight: 24,
+		fontWeight: "900",
+		color: "#ffffff",
+	},
+	profileMeta: {
+		marginTop: 3,
+		fontSize: 12,
+		lineHeight: 17,
+		color: "#E9DCF1",
+		fontWeight: "700",
+	},
+	panel: {
+		marginTop: 10,
+		padding: 12,
+		borderRadius: 8,
+		backgroundColor: "#ffffff",
+		borderWidth: StyleSheet.hairlineWidth,
+		borderColor: "#E3D8EA",
+	},
+	modeRow: {
+		flexDirection: "row",
+		gap: 8,
+		marginBottom: 10,
+	},
+	modeButton: {
+		flex: 1,
+		minHeight: 38,
+		borderRadius: 7,
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: "#FBF8FD",
+		borderWidth: StyleSheet.hairlineWidth,
+		borderColor: "#D8C8E2",
+	},
+	modeButtonActive: {
+		backgroundColor: "#5C307D",
+		borderColor: "#5C307D",
+	},
+	modeButtonText: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: "#4B1F6F",
+	},
+	modeButtonTextActive: {
+		color: "#ffffff",
+	},
+	llmForm: {
+		gap: 8,
+		marginBottom: 10,
+	},
+	providerRow: {
+		flexDirection: "row",
+		flexWrap: "wrap",
+		gap: 7,
+	},
+	providerChip: {
+		minHeight: 30,
+		paddingHorizontal: 10,
+		borderRadius: 15,
+		justifyContent: "center",
+		backgroundColor: "#FBF8FD",
+		borderWidth: StyleSheet.hairlineWidth,
+		borderColor: "#D8C8E2",
+	},
+	providerChipActive: {
+		backgroundColor: "#F0E6F6",
+		borderColor: "#B997CC",
+	},
+	providerChipText: {
+		fontSize: 12,
+		fontWeight: "900",
+		color: "#6C5D75",
+	},
+	providerChipTextActive: {
+		color: "#4B1F6F",
+	},
+	llmInput: {
+		minHeight: 40,
+		borderRadius: 7,
+		borderWidth: StyleSheet.hairlineWidth,
+		borderColor: "#D8C8E2",
+		paddingHorizontal: 10,
+		backgroundColor: "#FBF8FD",
+		color: "#2B123B",
+		fontSize: 13,
+	},
+	llmFooter: {
+		minHeight: 40,
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 8,
+	},
+	helperText: {
+		flex: 1,
+		fontSize: 12,
+		lineHeight: 17,
+		fontWeight: "700",
+		color: "#6C5D75",
+	},
+	sectionTitleRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 7,
+	},
+	sectionIcon: {
+		width: 22,
+		height: 22,
+	},
+	profileCapabilityGrid: {
+		gap: 8,
+	},
+	profileCapability: {
+		minHeight: 62,
+		padding: 9,
+		borderRadius: 8,
+		backgroundColor: "#FBF8FD",
+		borderWidth: StyleSheet.hairlineWidth,
+		borderColor: "#E7DDED",
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 10,
+	},
+	profileCapabilityIcon: {
+		width: 34,
+		height: 34,
+	},
+	profileCapabilityText: {
+		flex: 1,
+	},
+	tabBar: {
+		minHeight: 62,
+		paddingTop: 7,
+		paddingBottom: Platform.OS === "ios" ? 16 : 8,
+		paddingHorizontal: 34,
+		flexDirection: "row",
+		justifyContent: "space-between",
+		backgroundColor: "#ffffff",
+		borderTopWidth: StyleSheet.hairlineWidth,
+		borderTopColor: "#E4D8EA",
+	},
+	tabItem: {
+		minWidth: 104,
+		height: 44,
+		borderRadius: 8,
+		alignItems: "center",
+		justifyContent: "center",
+		flexDirection: "row",
+		gap: 8,
+	},
+	tabItemActive: {
+		backgroundColor: "#F0E6F6",
+	},
+	tabIcon: {
+		width: 22,
+		height: 22,
+	},
+	tabText: {
+		fontSize: 13,
+		fontWeight: "900",
+		color: "#6C5D75",
+	},
+	tabTextActive: {
+		color: "#4B1F6F",
 	},
 	appBar: {
 		minHeight: Platform.OS === "android" ? 92 : 72,
@@ -1179,21 +1948,21 @@ const styles = StyleSheet.create({
 	kicker: {
 		fontSize: 11,
 		fontWeight: "800",
-		color: "#60706c",
+		color: "#E3D1EC",
 		textTransform: "uppercase",
 	},
 	title: {
 		marginTop: 2,
 		fontSize: 26,
 		fontWeight: "800",
-		color: "#17201e",
+		color: "#ffffff",
 	},
 	healthLine: {
 		marginTop: 2,
 		maxWidth: 190,
 		fontSize: 11,
 		lineHeight: 15,
-		color: "#64706d",
+		color: "#E9DCF1",
 		fontWeight: "700",
 	},
 	appBarRight: {
@@ -1210,14 +1979,14 @@ const styles = StyleSheet.create({
 		borderRadius: 7,
 		alignItems: "center",
 		justifyContent: "center",
-		backgroundColor: "#ffffff",
+		backgroundColor: "#F7F2FA",
 		borderWidth: StyleSheet.hairlineWidth,
-		borderColor: "#d4dbd9",
+		borderColor: "#DACBE3",
 	},
 	headerButtonText: {
 		fontSize: 12,
 		fontWeight: "800",
-		color: "#34413d",
+		color: "#4B1F6F",
 	},
 	statusPill: {
 		height: 32,
@@ -1229,7 +1998,7 @@ const styles = StyleSheet.create({
 	},
 	status_neutral: {
 		backgroundColor: "#ffffff",
-		borderColor: "#d4dbd9",
+		borderColor: "#E0D2E7",
 	},
 	status_warn: {
 		backgroundColor: "#fff7df",
@@ -1244,8 +2013,8 @@ const styles = StyleSheet.create({
 		borderColor: "#e1aaa5",
 	},
 	status_busy: {
-		backgroundColor: "#eaf1ff",
-		borderColor: "#a9bee8",
+		backgroundColor: "#F0E6F6",
+		borderColor: "#CDB7DB",
 	},
 	statusDot: {
 		width: 7,
@@ -1266,7 +2035,7 @@ const styles = StyleSheet.create({
 		backgroundColor: "#bc392d",
 	},
 	dot_busy: {
-		backgroundColor: "#315fb8",
+		backgroundColor: "#5C307D",
 	},
 	statusPillText: {
 		fontSize: 12,
@@ -1296,7 +2065,7 @@ const styles = StyleSheet.create({
 	cardTitle: {
 		fontSize: 14,
 		fontWeight: "800",
-		color: "#1d2926",
+		color: "#2B123B",
 	},
 	backendRow: {
 		flexDirection: "row",
@@ -1309,10 +2078,20 @@ const styles = StyleSheet.create({
 		minHeight: 40,
 		borderRadius: 7,
 		borderWidth: StyleSheet.hairlineWidth,
-		borderColor: "#cbd5d2",
+		borderColor: "#D8C8E2",
 		paddingHorizontal: 10,
-		backgroundColor: "#f8faf9",
-		color: "#17201e",
+		backgroundColor: "#FBF8FD",
+		color: "#2B123B",
+	},
+	mobileDirectBox: {
+		flex: 1,
+		minHeight: 40,
+		borderRadius: 7,
+		borderWidth: StyleSheet.hairlineWidth,
+		borderColor: "#D8C8E2",
+		paddingHorizontal: 10,
+		justifyContent: "center",
+		backgroundColor: "#FBF8FD",
 	},
 	loginGrid: {
 		flexDirection: "row",
@@ -1326,10 +2105,10 @@ const styles = StyleSheet.create({
 		minHeight: 40,
 		borderRadius: 7,
 		borderWidth: StyleSheet.hairlineWidth,
-		borderColor: "#cbd5d2",
+		borderColor: "#D8C8E2",
 		paddingHorizontal: 10,
-		backgroundColor: "#f8faf9",
-		color: "#17201e",
+		backgroundColor: "#FBF8FD",
+		color: "#2B123B",
 	},
 	primaryButton: {
 		width: 64,
@@ -1337,7 +2116,7 @@ const styles = StyleSheet.create({
 		borderRadius: 7,
 		alignItems: "center",
 		justifyContent: "center",
-		backgroundColor: "#145c56",
+		backgroundColor: "#5C307D",
 	},
 	primaryButtonText: {
 		color: "#ffffff",
@@ -1350,7 +2129,7 @@ const styles = StyleSheet.create({
 		borderRadius: 7,
 		alignItems: "center",
 		justifyContent: "center",
-		backgroundColor: "#233a66",
+		backgroundColor: "#4B1F6F",
 	},
 	secondaryButtonText: {
 		color: "#ffffff",
@@ -1373,12 +2152,12 @@ const styles = StyleSheet.create({
 		paddingHorizontal: 10,
 		borderRadius: 16,
 		justifyContent: "center",
-		backgroundColor: "#eef4f2",
+		backgroundColor: "#F0E6F6",
 		borderWidth: StyleSheet.hairlineWidth,
-		borderColor: "#bdd1ca",
+		borderColor: "#D7C2E3",
 	},
 	methodChipText: {
-		color: "#145c56",
+		color: "#4B1F6F",
 		fontSize: 12,
 		fontWeight: "800",
 	},
@@ -1387,10 +2166,10 @@ const styles = StyleSheet.create({
 		minHeight: 36,
 		borderRadius: 7,
 		borderWidth: StyleSheet.hairlineWidth,
-		borderColor: "#cbd5d2",
+		borderColor: "#D8C8E2",
 		paddingHorizontal: 10,
-		backgroundColor: "#f8faf9",
-		color: "#17201e",
+		backgroundColor: "#FBF8FD",
+		color: "#2B123B",
 	},
 	ghostButton: {
 		width: 54,
@@ -1398,44 +2177,49 @@ const styles = StyleSheet.create({
 		borderRadius: 7,
 		alignItems: "center",
 		justifyContent: "center",
-		backgroundColor: "#edf0ef",
+		backgroundColor: "#F0E6F6",
 	},
 	ghostButtonText: {
-		color: "#3d4845",
+		color: "#4B1F6F",
 		fontWeight: "800",
 		fontSize: 13,
 	},
 	capabilityGrid: {
 		flexDirection: "row",
 		gap: 8,
-		marginTop: 10,
+		marginTop: 0,
 	},
 	capabilityTile: {
 		flex: 1,
-		height: 54,
+		height: 78,
 		borderRadius: 8,
 		padding: 8,
-		justifyContent: "flex-end",
+		justifyContent: "space-between",
+		alignItems: "flex-start",
 		borderWidth: StyleSheet.hairlineWidth,
 	},
 	tile_blue: {
-		backgroundColor: "#eaf1ff",
-		borderColor: "#b3c4e8",
+		backgroundColor: "#EEF4FF",
+		borderColor: "#C6D4F0",
 	},
 	tile_green: {
-		backgroundColor: "#e9f5ef",
-		borderColor: "#a9cab8",
+		backgroundColor: "#EAF7F0",
+		borderColor: "#B7D7C4",
 	},
 	tile_amber: {
-		backgroundColor: "#fff6de",
-		borderColor: "#e5ca7d",
+		backgroundColor: "#FFF5DC",
+		borderColor: "#E4C876",
 	},
 	tile_red: {
-		backgroundColor: "#fff0ed",
-		borderColor: "#dfa9a0",
+		backgroundColor: "#FFF0F1",
+		borderColor: "#E5B3B8",
+	},
+	capabilityIcon: {
+		width: 28,
+		height: 28,
 	},
 	capabilityLabel: {
-		color: "#1d2926",
+		color: "#2B123B",
 		fontWeight: "900",
 		fontSize: 14,
 	},
@@ -1496,20 +2280,20 @@ const styles = StyleSheet.create({
 		justifyContent: "center",
 		backgroundColor: "#ffffff",
 		borderWidth: StyleSheet.hairlineWidth,
-		borderColor: "#d8dedc",
+		borderColor: "#E0D2E7",
 	},
 	quickText: {
 		fontSize: 12,
 		fontWeight: "700",
-		color: "#33413d",
+		color: "#4B1F6F",
 	},
 	threadShell: {
-		minHeight: 380,
-		maxHeight: 560,
+		minHeight: 430,
+		maxHeight: 620,
 		backgroundColor: "#ffffff",
 		borderRadius: 8,
 		borderWidth: StyleSheet.hairlineWidth,
-		borderColor: "#d8dedc",
+		borderColor: "#E0D2E7",
 		overflow: "hidden",
 	},
 	threadHeader: {
@@ -1519,7 +2303,7 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		justifyContent: "space-between",
 		borderBottomWidth: StyleSheet.hairlineWidth,
-		borderBottomColor: "#e3e8e6",
+		borderBottomColor: "#E9DFEF",
 	},
 	threadCount: {
 		fontSize: 12,
@@ -1528,7 +2312,7 @@ const styles = StyleSheet.create({
 	},
 	messages: {
 		flex: 1,
-		backgroundColor: "#fbfcfb",
+		backgroundColor: "#FCFAFD",
 	},
 	messageContent: {
 		padding: 10,
@@ -1543,12 +2327,12 @@ const styles = StyleSheet.create({
 		flexDirection: "row",
 		alignItems: "center",
 		gap: 6,
-		backgroundColor: "#e8f1ee",
+		backgroundColor: "#F0E6F6",
 	},
 	systemEventText: {
 		fontSize: 12,
 		lineHeight: 16,
-		color: "#31504a",
+		color: "#4B1F6F",
 		fontWeight: "700",
 	},
 	userMessage: {
@@ -1558,7 +2342,7 @@ const styles = StyleSheet.create({
 		paddingHorizontal: 12,
 		paddingVertical: 9,
 		borderRadius: 8,
-		backgroundColor: "#233a66",
+		backgroundColor: "#5C307D",
 	},
 	userMessageText: {
 		color: "#ffffff",
@@ -1576,13 +2360,13 @@ const styles = StyleSheet.create({
 		borderRadius: 8,
 		backgroundColor: "#ffffff",
 		borderWidth: StyleSheet.hairlineWidth,
-		borderColor: "#dfe6e3",
+		borderColor: "#E4D8EA",
 	},
 	markdownHeading: {
 		fontSize: 16,
 		lineHeight: 22,
 		fontWeight: "900",
-		color: "#15211e",
+		color: "#2B123B",
 		marginBottom: 6,
 	},
 	markdownParagraph: {
@@ -1601,14 +2385,14 @@ const styles = StyleSheet.create({
 		width: 18,
 		fontSize: 14,
 		lineHeight: 21,
-		color: "#145c56",
+		color: "#5C307D",
 		fontWeight: "900",
 	},
 	markdownOrder: {
 		width: 24,
 		fontSize: 14,
 		lineHeight: 21,
-		color: "#145c56",
+		color: "#5C307D",
 		fontWeight: "900",
 	},
 	markdownStrong: {
@@ -1629,9 +2413,9 @@ const styles = StyleSheet.create({
 		marginTop: 8,
 		padding: 10,
 		borderRadius: 8,
-		backgroundColor: "#f7faf9",
+		backgroundColor: "#FBF8FD",
 		borderWidth: StyleSheet.hairlineWidth,
-		borderColor: "#dfe6e3",
+		borderColor: "#E4D8EA",
 		gap: 8,
 	},
 	sectionLabel: {
@@ -1760,7 +2544,7 @@ const styles = StyleSheet.create({
 		borderRadius: 7,
 		alignItems: "center",
 		justifyContent: "center",
-		backgroundColor: "#145c56",
+		backgroundColor: "#5C307D",
 	},
 	confirmButtonText: {
 		color: "#ffffff",
@@ -1776,7 +2560,7 @@ const styles = StyleSheet.create({
 		paddingBottom: 12,
 		backgroundColor: "#ffffff",
 		borderTopWidth: StyleSheet.hairlineWidth,
-		borderTopColor: "#d8dedc",
+		borderTopColor: "#E4D8EA",
 	},
 	composerInput: {
 		flex: 1,
@@ -1784,11 +2568,11 @@ const styles = StyleSheet.create({
 		minHeight: 44,
 		borderRadius: 8,
 		borderWidth: StyleSheet.hairlineWidth,
-		borderColor: "#cbd5d2",
+		borderColor: "#D8C8E2",
 		paddingHorizontal: 12,
 		paddingVertical: 10,
-		backgroundColor: "#f8faf9",
-		color: "#17201e",
+		backgroundColor: "#FBF8FD",
+		color: "#2B123B",
 		fontSize: 14,
 		lineHeight: 19,
 	},
@@ -1798,7 +2582,7 @@ const styles = StyleSheet.create({
 		borderRadius: 8,
 		alignItems: "center",
 		justifyContent: "center",
-		backgroundColor: "#145c56",
+		backgroundColor: "#5C307D",
 	},
 	voiceButton: {
 		width: 44,
@@ -1806,21 +2590,25 @@ const styles = StyleSheet.create({
 		borderRadius: 8,
 		alignItems: "center",
 		justifyContent: "center",
-		backgroundColor: "#edf0ef",
+		backgroundColor: "#F0E6F6",
 		borderWidth: StyleSheet.hairlineWidth,
-		borderColor: "#cbd5d2",
+		borderColor: "#D8C8E2",
 	},
 	voiceButtonActive: {
-		backgroundColor: "#fff6de",
-		borderColor: "#d9b64d",
+		backgroundColor: "#EADDF2",
+		borderColor: "#B997CC",
 	},
 	voiceButtonText: {
-		color: "#34413d",
+		color: "#4B1F6F",
 		fontSize: 14,
 		fontWeight: "900",
 	},
 	voiceButtonTextActive: {
-		color: "#6b4b00",
+		color: "#4B1F6F",
+	},
+	voiceIcon: {
+		width: 24,
+		height: 24,
 	},
 	sendButtonText: {
 		color: "#ffffff",

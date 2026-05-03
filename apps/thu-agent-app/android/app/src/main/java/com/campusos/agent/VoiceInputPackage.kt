@@ -7,7 +7,10 @@ import com.facebook.react.uimanager.ViewManager
 
 class VoiceInputPackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> =
-        listOf(VoiceInputModule(reactContext))
+        listOf(
+            VoiceInputModule(reactContext),
+            SettingsStorageModule(reactContext),
+        )
 
     override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> =
         emptyList()

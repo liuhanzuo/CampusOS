@@ -4,6 +4,7 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.modules.core.DeviceEventManagerModule
 import org.json.JSONObject
 import org.vosk.Model
 import org.vosk.Recognizer
@@ -51,12 +52,18 @@ class VoiceInputModule(private val reactContext: ReactApplicationContext) :
             speechService?.startListening(object : RecognitionListener {
                 override fun onPartialResult(hypothesis: String?) {
                     val text = parseText(hypothesis)
-                    if (text.isNotBlank()) bestText = text
+                    if (text.isNotBlank()) {
+                        bestText = text
+                        emitPartial(text)
+                    }
                 }
 
                 override fun onResult(hypothesis: String?) {
                     val text = parseText(hypothesis)
-                    if (text.isNotBlank()) bestText = text
+                    if (text.isNotBlank()) {
+                        bestText = text
+                        emitPartial(text)
+                    }
                 }
 
                 override fun onFinalResult(hypothesis: String?) {
@@ -83,6 +90,12 @@ class VoiceInputModule(private val reactContext: ReactApplicationContext) :
     fun stop() {
         speechService?.stop()
     }
+
+    @ReactMethod
+    fun addListener(eventName: String) = Unit
+
+    @ReactMethod
+    fun removeListeners(count: Int) = Unit
 
     private fun ensureModelLoaded(promise: Promise) {
         if (loadingPromise != null) {
@@ -137,6 +150,12 @@ class VoiceInputModule(private val reactContext: ReactApplicationContext) :
         } catch (_: Exception) {
             ""
         }
+    }
+
+    private fun emitPartial(text: String) {
+        reactContext
+            .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+            .emit("VoiceInputPartial", text)
     }
 
     override fun invalidate() {

@@ -58,7 +58,8 @@ const getProxyAgent = (url: string): any => {
     try {
         // Loaded lazily so React Native/browser builds do not bundle a Node-only agent.
         // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { HttpsProxyAgent } = require("https-proxy-agent");
+        const nodeRequire = eval("require");
+        const { HttpsProxyAgent } = nodeRequire("https-proxy-agent");
         return new HttpsProxyAgent(proxyUrl);
     } catch {
         return undefined;
